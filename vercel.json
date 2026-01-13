@@ -4,12 +4,10 @@
         {
             "source": "/admin",
             "destination": "/public/admin/index.html"
-        }
-    ],
-    "routes": [
+        },
         {
-            "src": "/admin/(.*)",
-            "dest": "/public/admin/$1"
+            "source": "/admin/",
+            "destination": "/public/admin/index.html"
         }
     ],
     "headers": [
