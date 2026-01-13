@@ -1,4 +1,5 @@
 const { Redis } = require('@upstash/redis');
+const crypto = require('crypto');
 
 const redis = new Redis({
     url: process.env.UPSTASH_REDIS_REST_URL,
@@ -6,6 +7,9 @@ const redis = new Redis({
 });
 
 const { createToken } = require('../../lib/crypto');
+
+// Signing secret (should match extension)
+const SIGN_SECRET = 'vecna-sign-key';
 
 module.exports = async function handler(req, res) {
     // Handle CORS preflight
@@ -18,10 +22,32 @@ module.exports = async function handler(req, res) {
     }
 
     try {
-        const { key, deviceId } = req.body;
+        const { key, deviceId, timestamp, signature } = req.body;
 
         if (!key || !deviceId) {
             return res.status(400).json({ error: 'Missing key or deviceId' });
+        }
+
+        // Verify request signature (prevents replay attacks)
+        if (timestamp && signature) {
+            const now = Date.now();
+            const requestAge = now - timestamp;
+
+            // Reject requests older than 5 minutes
+            if (requestAge > 5 * 60 * 1000 || requestAge < -60000) {
+                return res.status(403).json({ error: 'Request expired', code: 'EXPIRED_REQUEST' });
+            }
+
+            // Verify signature
+            const expectedSignature = crypto
+                .createHash('sha256')
+                .update(`${key}:${deviceId}:${timestamp}:${SIGN_SECRET}`)
+                .digest('hex')
+                .substring(0, 32);
+
+            if (signature !== expectedSignature) {
+                return res.status(403).json({ error: 'Invalid signature', code: 'INVALID_SIGNATURE' });
+            }
         }
 
         // Lookup key in Redis
