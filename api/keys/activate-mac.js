@@ -6,9 +6,7 @@ const redis = new Redis({
     token: process.env.UPSTASH_REDIS_REST_TOKEN
 });
 
-const { createToken } = require('../../lib/crypto');
-
-// Signing secret (should match extension)
+// Signing secret (should match Python program)
 const SIGN_SECRET = 'vecna-sign-key';
 
 module.exports = async function handler(req, res) {
@@ -22,13 +20,13 @@ module.exports = async function handler(req, res) {
     }
 
     try {
-        const { key, deviceId, timestamp, signature } = req.body;
+        const { key, macAddress, timestamp, signature, checkOnly } = req.body;
 
-        if (!key || !deviceId) {
-            return res.status(400).json({ error: 'Missing key or deviceId' });
+        if (!key || !macAddress) {
+            return res.status(400).json({ error: 'Missing key or macAddress' });
         }
 
-        // Verify request signature (prevents replay attacks)
+        // Verify request signature
         if (timestamp && signature) {
             const now = Date.now();
             const requestAge = now - timestamp;
@@ -41,7 +39,7 @@ module.exports = async function handler(req, res) {
             // Verify signature
             const expectedSignature = crypto
                 .createHash('sha256')
-                .update(`${key}:${deviceId}:${timestamp}:${SIGN_SECRET}`)
+                .update(`${key}:${macAddress}:${timestamp}:${SIGN_SECRET}`)
                 .digest('hex')
                 .substring(0, 32);
 
@@ -54,74 +52,52 @@ module.exports = async function handler(req, res) {
         const keyData = await redis.hgetall(`key:${key}`);
 
         if (!keyData || !keyData.key) {
-            return res.status(404).json({ error: 'Invalid license key' });
+            return res.status(404).json({ error: 'Invalid license key', code: 'KEY_NOT_FOUND' });
         }
 
         // Check if revoked
         if (keyData.revoked === 'true') {
-            return res.status(403).json({ error: 'License key has been revoked' });
+            return res.status(403).json({ error: 'License key has been revoked', code: 'KEY_REVOKED' });
         }
 
         // Check expiry
         const expiresAt = parseInt(keyData.expiresAt);
         if (expiresAt < Date.now()) {
-            return res.status(403).json({ error: 'License key has expired' });
+            return res.status(403).json({ error: 'License key has expired', code: 'KEY_EXPIRED' });
         }
 
-        // ============================================
-        // MAC ADDRESS CHECK - Must be activated via Python first
-        // ============================================
-        if (!keyData.macAddress) {
+        // Check MAC address lock
+        if (keyData.macAddress && keyData.macAddress !== macAddress) {
             return res.status(403).json({
-                error: 'License not activated. Run the activation program first.',
-                code: 'MAC_NOT_BOUND',
-                requiresActivation: true
+                error: 'License is already bound to a different computer',
+                code: 'MAC_MISMATCH'
             });
         }
 
-        // ============================================
-        // DEVICE FINGERPRINT CHECK
-        // ============================================
-        if (keyData.deviceId && keyData.deviceId !== deviceId) {
-            return res.status(403).json({
-                error: 'License is already activated on another browser/device',
-                code: 'DEVICE_MISMATCH'
-            });
-        }
-
-        // If no device bound yet, bind this device
-        if (!keyData.deviceId) {
+        // If no MAC bound yet, bind this MAC (unless checkOnly)
+        if (!keyData.macAddress && !checkOnly) {
             await redis.hset(`key:${key}`, {
-                deviceId: deviceId,
-                deviceActivatedAt: Date.now().toString()
+                macAddress: macAddress,
+                macActivatedAt: Date.now().toString()
             });
-            keyData.deviceId = deviceId;
+            keyData.macAddress = macAddress;
         }
 
         // Update last used
         await redis.hset(`key:${key}`, {
-            lastUsed: Date.now().toString()
-        });
-
-        // Generate verification token
-        const token = createToken({
-            key: key,
-            deviceId: deviceId,
-            macAddress: keyData.macAddress,
-            expiresAt: expiresAt
+            lastMacCheck: Date.now().toString()
         });
 
         return res.status(200).json({
             valid: true,
+            macBound: true,
             expiresAt: expiresAt,
             daysRemaining: Math.ceil((expiresAt - Date.now()) / (1000 * 60 * 60 * 24)),
-            token: token,
-            label: keyData.label || null,
-            macBound: true
+            label: keyData.label || null
         });
 
     } catch (error) {
-        console.error('Verify error:', error);
+        console.error('Activate MAC error:', error);
         return res.status(500).json({ error: 'Server error' });
     }
 };
