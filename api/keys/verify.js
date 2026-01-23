@@ -11,6 +11,9 @@ const { createToken } = require('../../lib/crypto');
 // Signing secret (should match extension)
 const SIGN_SECRET = 'vecna-sign-key';
 
+// Heartbeat must be within this many milliseconds to be considered "online"
+const HEARTBEAT_TIMEOUT = 60000; // 60 seconds
+
 module.exports = async function handler(req, res) {
     // Handle CORS preflight
     if (req.method === 'OPTIONS') {
@@ -75,6 +78,20 @@ module.exports = async function handler(req, res) {
             return res.status(403).json({
                 error: 'License not activated. Run the activation program first.',
                 code: 'MAC_NOT_BOUND',
+                requiresActivation: true
+            });
+        }
+
+        // ============================================
+        // HEARTBEAT CHECK - Python program must be running
+        // ============================================
+        const lastHeartbeat = parseInt(keyData.lastHeartbeat) || 0;
+        const heartbeatAge = Date.now() - lastHeartbeat;
+
+        if (heartbeatAge > HEARTBEAT_TIMEOUT || keyData.isOnline === 'false') {
+            return res.status(403).json({
+                error: 'License manager not running. Start the activation program.',
+                code: 'HEARTBEAT_TIMEOUT',
                 requiresActivation: true
             });
         }
