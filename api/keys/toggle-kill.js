@@ -44,10 +44,10 @@ module.exports = async function handler(req, res) {
         // Verify write
         const verified = await redis.hget(`key:${key}`, 'killSwitch');
 
-        if (verified !== val) {
+        if (String(verified) !== String(val)) {
             console.error(`Write failed! Expected ${val}, got ${verified}`);
             return res.status(500).json({
-                error: `Persistence failed: Exp '${val}' Got '${verified}'`
+                error: `Persistence failed: Exp '${val}' Got '${verified}' (Type mismatch?)`
             });
         }
 
