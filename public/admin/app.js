@@ -172,13 +172,22 @@ async function toggleKill(key, enabled) {
         const data = await response.json();
         if (data.success) {
             showToast(enabled ? 'Kill Switch ACTIVATED' : 'Kill Switch deactivated', enabled ? 'error' : 'success');
-            // Optimistic update of UI class
-            loadKeys();
+
+            // Manual optimistic update - find checkbox and update row class
+            const checkbox = document.querySelector(`input[onchange="toggleKill('${key}', this.checked)"]`);
+            if (checkbox) {
+                const tr = checkbox.closest('tr');
+                if (enabled) {
+                    tr.classList.add('kill-active');
+                } else {
+                    tr.classList.remove('kill-active');
+                }
+            }
         }
 
     } catch (error) {
         showToast('Failed to toggle kill switch', 'error');
-        // Revert checkbox state via reload
+        // Revert checkbox state via reload ONLY on error
         loadKeys();
     }
 }
