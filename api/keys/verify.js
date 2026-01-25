@@ -65,6 +65,16 @@ module.exports = async function handler(req, res) {
             return res.status(403).json({ error: 'License key has been revoked' });
         }
 
+        // Check KILL SWITCH
+        if (keyData.killSwitch === 'true') {
+            return res.status(200).json({
+                valid: false,
+                blocked: true,
+                error: 'BLOCKED',
+                code: 'BLOCKED_BY_ADMIN'
+            });
+        }
+
         // Check expiry
         const expiresAt = parseInt(keyData.expiresAt);
         if (expiresAt < Date.now()) {

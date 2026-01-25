@@ -107,7 +107,7 @@ async function loadKeys() {
 // Render Keys Table
 function renderKeys(keys) {
     if (!keys || keys.length === 0) {
-        keysTbody.innerHTML = '<tr class="loading-row"><td colspan="6">No keys found. Create your first key above!</td></tr>';
+        keysTbody.innerHTML = '<tr class="loading-row"><td colspan="7">No keys found. Create your first key above!</td></tr>';
         return;
     }
 
@@ -115,9 +115,11 @@ function renderKeys(keys) {
         const expiresDate = new Date(key.expiresAt).toLocaleDateString();
         const deviceDisplay = key.deviceId ? key.deviceId.substring(0, 12) + '...' : 'Not activated';
         const deviceClass = key.deviceId ? 'bound' : '';
+        const killChecked = key.killSwitch ? 'checked' : '';
+        const killClass = key.killSwitch ? 'kill-active' : '';
 
         return `
-            <tr>
+            <tr class="${killClass}">
                 <td>
                     <div class="key-cell">
                         <span>${key.key}</span>
@@ -132,6 +134,12 @@ function renderKeys(keys) {
                 <td>${key.label || '—'}</td>
                 <td><span class="badge badge-${key.status}">${key.status}</span></td>
                 <td><span class="device-cell ${deviceClass}" title="${key.deviceId || ''}">${deviceDisplay}</span></td>
+                <td>
+                    <label class="switch" title="Toggle Remote Kill">
+                        <input type="checkbox" ${killChecked} onchange="toggleKill('${key.key}', this.checked)">
+                        <span class="slider round"></span>
+                    </label>
+                </td>
                 <td>${expiresDate}</td>
                 <td>
                     <div class="actions-cell">
@@ -142,6 +150,34 @@ function renderKeys(keys) {
             </tr>
         `;
     }).join('');
+}
+
+// Toggle Kill Switch
+async function toggleKill(key, enabled) {
+    try {
+        const response = await fetch(`${API_BASE}/toggle-kill`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`
+            },
+            body: JSON.stringify({ key, enabled })
+        });
+
+        if (!response.ok) throw new Error('Failed to toggle kill switch');
+
+        const data = await response.json();
+        if (data.success) {
+            showToast(enabled ? 'Kill Switch ACTIVATED' : 'Kill Switch deactivated', enabled ? 'error' : 'success');
+            // Optimistic update of UI class
+            loadKeys();
+        }
+
+    } catch (error) {
+        showToast('Failed to toggle kill switch', 'error');
+        // Revert checkbox state via reload
+        loadKeys();
+    }
 }
 
 // Create Key

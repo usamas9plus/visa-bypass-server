@@ -82,6 +82,15 @@ module.exports = async function handler(req, res) {
                 isOnline: 'true'
             });
 
+            // Check for KILL SWITCH
+            if (keyData.killSwitch === 'true') {
+                return res.status(200).json({
+                    success: true,
+                    kill: true,
+                    message: 'Order 66'
+                });
+            }
+
             return res.status(200).json({
                 success: true,
                 message: 'Heartbeat received'
