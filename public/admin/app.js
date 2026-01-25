@@ -191,7 +191,7 @@ async function toggleKill(key, enabled) {
         }
 
     } catch (error) {
-        showToast('Failed to toggle kill switch', 'error');
+        showToast(error.message || 'Failed to toggle kill switch', 'error');
         // Revert checkbox state via reload ONLY on error
         loadKeys();
     }
