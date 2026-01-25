@@ -81,8 +81,11 @@ async function loadKeys() {
     try {
         keysTbody.innerHTML = '<tr class="loading-row"><td colspan="6">Loading...</td></tr>';
 
-        const response = await fetch(`${API_BASE}/list`, {
-            headers: { 'Authorization': `Bearer ${authToken}` }
+        const response = await fetch(`${API_BASE}/list?t=${Date.now()}`, {
+            headers: {
+                'Authorization': `Bearer ${authToken}`,
+                'Cache-Control': 'no-cache, no-store, must-revalidate'
+            }
         });
 
         if (!response.ok) throw new Error('Failed to load keys');
