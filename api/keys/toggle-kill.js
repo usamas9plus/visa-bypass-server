@@ -46,7 +46,9 @@ module.exports = async function handler(req, res) {
 
         if (verified !== val) {
             console.error(`Write failed! Expected ${val}, got ${verified}`);
-            return res.status(500).json({ error: 'Failed to persist change' });
+            return res.status(500).json({
+                error: `Persistence failed: Exp '${val}' Got '${verified}'`
+            });
         }
 
         return res.status(200).json({ success: true, killSwitch: enabled, stored: verified });

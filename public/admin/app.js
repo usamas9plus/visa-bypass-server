@@ -167,7 +167,10 @@ async function toggleKill(key, enabled) {
             body: JSON.stringify({ key, enabled })
         });
 
-        if (!response.ok) throw new Error('Failed to toggle kill switch');
+        if (!response.ok) {
+            const errData = await response.json().catch(() => ({}));
+            throw new Error(errData.error || 'Failed to toggle kill switch');
+        }
 
         const data = await response.json();
         if (data.success) {
