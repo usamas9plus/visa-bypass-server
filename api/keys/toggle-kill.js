@@ -36,11 +36,20 @@ module.exports = async function handler(req, res) {
         }
 
         // Update kill switch status
+        const val = enabled ? 'true' : 'false';
         await redis.hset(`key:${key}`, {
-            killSwitch: enabled ? 'true' : 'false'
+            killSwitch: val
         });
 
-        return res.status(200).json({ success: true, killSwitch: enabled });
+        // Verify write
+        const verified = await redis.hget(`key:${key}`, 'killSwitch');
+
+        if (verified !== val) {
+            console.error(`Write failed! Expected ${val}, got ${verified}`);
+            return res.status(500).json({ error: 'Failed to persist change' });
+        }
+
+        return res.status(200).json({ success: true, killSwitch: enabled, stored: verified });
 
     } catch (error) {
         console.error('Toggle kill error:', error);
