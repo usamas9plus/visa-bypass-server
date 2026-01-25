@@ -70,6 +70,7 @@ module.exports = async function handler(req, res) {
         // Sort by creation date (newest first)
         keys.sort((a, b) => b.createdAt - a.createdAt);
 
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
         return res.status(200).json({
             keys: keys,
             stats: {
