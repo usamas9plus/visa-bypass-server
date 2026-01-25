@@ -66,7 +66,7 @@ module.exports = async function handler(req, res) {
         }
 
         // Check KILL SWITCH
-        if (keyData.killSwitch === 'true') {
+        if (String(keyData.killSwitch) === 'true') {
             return res.status(200).json({
                 valid: false,
                 blocked: true,

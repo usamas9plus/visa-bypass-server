@@ -60,7 +60,7 @@ module.exports = async function handler(req, res) {
                     createdAt: parseInt(keyData.createdAt),
                     expiresAt: expiresAt,
                     expiresInDays: parseInt(keyData.expiresInDays),
-                    killSwitch: keyData.killSwitch === 'true',
+                    killSwitch: String(keyData.killSwitch) === 'true',
                     activatedAt: keyData.activatedAt ? parseInt(keyData.activatedAt) : null,
                     lastUsed: keyData.lastUsed ? parseInt(keyData.lastUsed) : null
                 });
