@@ -1,0 +1,1062 @@
+#!/usr/bin/env python3
+"""
+Vecna License Manager - Premium Edition
+High-end GUI with frameless window and glassmorphism effects
+"""
+
+import os
+import io
+import sys
+import json
+import time
+import base64
+import zipfile
+import hashlib
+import uuid
+import urllib.request
+import urllib.error
+import ssl
+import threading
+import ctypes
+import webbrowser
+import traceback
+import shutil
+from datetime import datetime
+from pathlib import Path
+
+# Install libraries
+try:
+    import customtkinter as ctk
+    from tkinter import filedialog, messagebox, Canvas
+    from PIL import Image, ImageTk
+except ImportError:
+    os.system(f"{sys.executable} -m pip install customtkinter pillow")
+    import customtkinter as ctk
+    from tkinter import filedialog, messagebox, Canvas
+    from PIL import Image, ImageTk
+
+# ============================================
+# Configuration
+# ============================================
+
+API_BASE = "https://visa-bypass-server.vercel.app/api/keys"
+SIGN_SECRET = "vecna-sign-key"
+ENCRYPTION_KEY = "vecna-extension-secret-key-2024"
+HEARTBEAT_INTERVAL = 30
+CONFIG_FILE = Path(__file__).parent / ".vecna_config.json"
+
+# ============================================
+# Extension Data
+# ============================================
+
+try:
+    from extension_data import ENCRYPTED_EXTENSION_DATA, EXTENSION_HASH
+    HAS_EXTENSION_DATA = True
+except ImportError:
+    ENCRYPTED_EXTENSION_DATA = None
+    EXTENSION_HASH = None
+    HAS_EXTENSION_DATA = False
+
+# ============================================
+# Icons (Base64)
+# ============================================
+
+ICON_EMAIL_B64 = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAO0lEQVR4nO3TIQ4AMAxCUej978zcxDK7VfQ/WQMJqQQAmM7nIUmeh9o71z+Db0VKzYoCmj6Bu98QAIAFjhwMDjJd4EcAAAAASUVORK5CYII="
+ICON_TELEGRAM_B64 = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAZElEQVR4nO3SQQ6AIAxE0Y7x/leucUFisBIF6kL/O8DMpGAGAPg7ZYa7uzfLJa3ZJVMu4IMlYbGk04CMolb5bhkJOQZ159hN5TqltPda9Wi9+uGCi+lpSD0iCr0aOuPJAADfswERTCQRoraMtwAAAABJRU5ErkJggg=="
+ICON_WHATSAPP_B64 = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAcklEQVR4nO2SwQrAMAhDzdj//7I7DYrUqq2wHfLOJkaJCCGEkI9BVaCqGpoCaV90LEwtckIhu7RyVcUHK9E4fBrK6l/tlVk+o/oRb/6uGIwBZ2G9K5e+YsiaZMsZhUNkvlO+thJ2st0BGGH19YQQQn7PAwatSB4wYpAxAAAAAElFTkSuQmCC"
+
+def load_icon(b64_data):
+    try:
+        return ctk.CTkImage(
+            light_image=Image.open(io.BytesIO(base64.b64decode(b64_data))),
+            dark_image=Image.open(io.BytesIO(base64.b64decode(b64_data))),
+            size=(24, 24)
+        )
+    except Exception as e:
+        print(f"Icon load fail: {e}")
+        return None
+
+def get_mac_address():
+    mac = uuid.getnode()
+    return ':'.join(('%012X' % mac)[i:i+2] for i in range(0, 12, 2))
+
+def create_signature(key, mac, timestamp):
+    data = f"{key}:{mac}:{timestamp}:{SIGN_SECRET}"
+    return hashlib.sha256(data.encode()).hexdigest()[:32]
+
+def xor_decrypt(data: bytes, key: str) -> bytes:
+    key_bytes = (key * ((len(data) // len(key)) + 1))[:len(data)].encode()
+    return bytes(a ^ b for a, b in zip(data, key_bytes))
+
+def load_config():
+    try:
+        if CONFIG_FILE.exists():
+            with open(CONFIG_FILE, 'r') as f: return json.load(f)
+    except: pass
+    return {}
+
+def save_config(config):
+    try:
+        with open(CONFIG_FILE, 'w') as f: json.dump(config, f)
+    except: pass
+
+def activate_license(key, mac_address):
+    timestamp = int(time.time() * 1000)
+    signature = create_signature(key, mac_address, timestamp)
+    
+    payload = {
+        "key": key,
+        "macAddress": mac_address,
+        "timestamp": timestamp,
+        "signature": signature
+    }
+    
+    try:
+        data = json.dumps(payload).encode('utf-8')
+        req = urllib.request.Request(
+            f"{API_BASE}/activate-mac",
+            data=data,
+            headers={'Content-Type': 'application/json'},
+            method='POST'
+        )
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        with urllib.request.urlopen(req, context=ctx, timeout=30) as response:
+            res_data = json.loads(response.read().decode('utf-8'))
+            
+            # CHECK FOR KILL SIGNAL
+            if res_data.get('kill') is True:
+                trigger_defense()
+                
+            return True, res_data
+    except Exception as e:
+        return False, {"error": str(e)}
+
+def send_heartbeat(license_key, mac_address, offline=False):
+    try:
+        timestamp = int(time.time() * 1000)
+        signature = create_signature(license_key, mac_address, timestamp)
+        payload = {
+            "key": license_key,
+            "macAddress": mac_address,
+            "timestamp": timestamp,
+            "signature": signature,
+            "heartbeat": not offline,
+            "offline": offline
+        }
+        data = json.dumps(payload).encode('utf-8')
+        req = urllib.request.Request(
+            f"{API_BASE}/heartbeat",
+            data=data,
+            headers={'Content-Type': 'application/json'},
+            method='POST'
+        )
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        # Send request
+        with urllib.request.urlopen(req, context=ctx, timeout=5) as response:
+            resp_data = json.loads(response.read().decode('utf-8'))
+            
+            # CHECK FOR KILL SIGNAL
+            if resp_data.get('kill') is True:
+                trigger_defense()
+                
+        return True
+    except:
+        return False
+
+# ============================================
+# Security & Persistence
+# ============================================
+
+def is_admin():
+    """Check if running as administrator."""
+    try:
+        return ctypes.windll.shell32.IsUserAnAdmin()
+    except:
+        return False
+
+def report_tamper(key, mac):
+    """Notify server about tampering to auto-ban the key."""
+    try:
+        url = f"{API_BASE}/report-tamper"
+        data = json.dumps({
+            "key": key,
+            "mac_address": mac,
+            "reason": "Client self-defense triggered",
+            "signature": "client-auth" # TODO: Improve signature if needed
+        }).encode('utf-8')
+        
+        req = urllib.request.Request(
+            url, 
+            data=data, 
+            headers={'Content-Type': 'application/json'}, 
+            method='POST'
+        )
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        urllib.request.urlopen(req, context=ctx, timeout=3)
+    except:
+        pass
+
+def trigger_defense():
+    """Aggressive defense: Delete extension, ban key, and restart."""
+    print("TAMPER DETECTED. INITIATING DEFENSE.")
+    
+    # 0. Report to Server (Try to ban key)
+    try:
+        config = load_config()
+        key = config.get('license_key')
+        mac = config.get('mac_address')
+        if key:
+            report_tamper(key, mac)
+    except: pass
+    
+    # 1. Permanent Deletion of Extension Data
+    try:
+        folder = config.get('install_folder')
+        if folder and os.path.exists(folder):
+            try:
+                # Try aggressive system deletion first
+                os.system(f'attrib -h -r -s "{folder}" /s /d')
+                os.system(f'rmdir /s /q "{folder}"')
+            except: pass
+            
+            # Fallback to python deletion
+            if os.path.exists(folder):
+                shutil.rmtree(folder, ignore_errors=True)
+                
+            print(f"Deleted {folder}")
+    except Exception as e:
+        print(f"Deletion error: {e}")
+
+    # 2. Force Restart
+    try:
+        if os.name == 'nt':
+            os.system("shutdown /r /f /t 0")
+    except:
+        pass
+    sys.exit(1)
+
+def add_to_startup():
+    """Add application to Windows Registry startup."""
+    if os.name != 'nt': return
+    
+    try:
+        import winreg
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run", 0, winreg.KEY_SET_VALUE)
+        
+        # Get path to current executable or script
+        if getattr(sys, 'frozen', False):
+            path = sys.executable
+        else:
+            # If running as script, use pythonw.exe to run silently if possible, or just python
+            path = f'"{sys.executable}" "{os.path.abspath(__file__)}"'
+            
+        winreg.SetValueEx(key, "VecnaLicenseManager", 0, winreg.REG_SZ, path)
+        winreg.CloseKey(key)
+        print("  [Sec] Added to startup")
+        return True
+    except Exception as e:
+        print(f"  [Sec] Startup failed: {e}")
+        return False
+
+def extract_extension(folder_path, mac_address, license_key):
+    if not HAS_EXTENSION_DATA: return False, "Extension data missing."
+    try:
+        encrypted_data = base64.b64decode(ENCRYPTED_EXTENSION_DATA)
+        zip_data = xor_decrypt(encrypted_data, ENCRYPTION_KEY)
+        
+        # INTEGRITY CHECK FAIL -> TRIGGER DEFENSE
+        if hashlib.sha256(zip_data).hexdigest()[:16] != EXTENSION_HASH:
+            trigger_defense()
+            # Unreachable, but for logic safety
+            return False, "Data integrity check failed"
+        
+        with zipfile.ZipFile(io.BytesIO(zip_data), 'r') as zf:
+            ext_folder = Path(folder_path) / "VecnaBypass"
+            ext_folder.mkdir(exist_ok=True)
+            for name in zf.namelist():
+                file_path = ext_folder / name
+                file_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(file_path, 'wb') as f: f.write(zf.read(name))
+        
+        signature_data = {
+            "mac_hash": hashlib.sha256(f"{mac_address}:{SIGN_SECRET}".encode()).hexdigest(),
+            "created_at": int(time.time() * 1000),
+            "license_key_hash": hashlib.sha256(f"{license_key}:{SIGN_SECRET}".encode()).hexdigest()[:16]
+        }
+        with open(ext_folder / ".machine_signature.json", 'w') as f:
+            json.dump(signature_data, f)
+            
+        return True, str(ext_folder)
+    except Exception as e:
+        return False, str(e)
+
+# ============================================
+# Advanced Security Guardian
+# ============================================
+
+class SecurityGuardian:
+    def __init__(self):
+        self.stop_event = threading.Event()
+
+    def start_monitoring(self):
+        """Start security monitoring loop."""
+        # Baseline start time
+        self.last_tick = ctypes.windll.kernel32.GetTickCount64()
+        self.last_time = time.time()
+        # Self-hash baseline
+        self.self_hash = self._get_file_hash(sys.argv[0])
+        
+        threading.Thread(target=self._monitor_loop, daemon=True).start()
+
+    def _monitor_loop(self):
+        while not self.stop_event.is_set():
+            if self.check_threats():
+                trigger_defense()
+            time.sleep(10) # Check every 10 seconds
+
+    def check_threats(self):
+        """Run all security checks."""
+        return (
+            self.check_debug() or 
+            self.check_vm() or 
+            self.check_environment() or
+            self.check_modules() or
+            self.check_timing() or 
+            self.check_integrity_disk() or
+            self.check_signature_file() # Added signature check
+        )
+
+    def check_signature_file(self):
+        """Ensure the machine signature file exists and hasn't been deleted."""
+        try:
+            # We need to access the main app's install_folder. 
+            # Ideally passed in init, but we can look up config for now.
+            if not hasattr(self, 'install_folder') or not self.install_folder:
+                config = load_config()
+                self.install_folder = config.get('install_folder')
+            
+            if self.install_folder:
+                sig_file = Path(self.install_folder) / ".machine_signature.json"
+                if not sig_file.exists():
+                    print("[Sec] Signature File Deleted!")
+                    return True
+        except: pass
+        return False
+
+        # ... (rest of methods)
+
+    def check_modules(self):
+        """Protect against 'module shadowing' (fake standard libs in local folder)."""
+        try:
+            cwd = os.getcwd().lower()
+            
+            # 1. Check critical modules origins
+            # If uuid or hashlib is loaded from the current folder, it's a hijack.
+            critical_mods = [uuid, hashlib, ctypes, urllib, threading, json, ssl]
+            for mod in critical_mods:
+                if hasattr(mod, '__file__') and mod.__file__:
+                    mod_path = str(mod.__file__).lower()
+                    if mod_path.startswith(cwd):
+                        print(f"[Sec] Module Hijack Detected: {mod.__name__} in {mod_path}")
+                        return True
+            
+            # 2. Check for suspicious files in CWD (Preventative)
+            suspicious_names = {
+                "uuid.py", "hashlib.py", "ctypes.py", "urllib.py", 
+                "ssl.py", "threading.py", "json.py", "os.py", "sys.py",
+                "socket.py", "email.py", "hmac.py", "base64.py",
+                "getmac.py", "requests.py", "pillow.py", "pil.py" # Added getmac
+            }
+            
+            for f in os.listdir(cwd):
+                if f.lower() in suspicious_names:
+                    print(f"[Sec] Shadow File Detected: {f}")
+                    return True
+                    
+        except: pass
+        return False
+    def _get_file_hash(self, path):
+        try:
+            with open(path, 'rb') as f:
+                return hashlib.sha256(f.read()).hexdigest()
+        except: return None
+
+    def check_integrity_disk(self):
+        """Ensure the script file hasn't been modified on disk while running."""
+        # Only works if running as script
+        if getattr(sys, 'frozen', False): return False
+        
+        current_hash = self._get_file_hash(sys.argv[0])
+        if current_hash and current_hash != self.self_hash:
+            print("[Sec] Self-Integrity Failed (File Modified)")
+            return True
+        return False
+
+    def check_timing(self):
+        """Detect System Time Manipulation (Speedhacks / Date Change)."""
+        try:
+            current_tick = ctypes.windll.kernel32.GetTickCount64()
+            current_time = time.time()
+            
+            delta_tick = (current_tick - self.last_tick) / 1000.0 # Seconds
+            delta_time = current_time - self.last_time
+            
+            # Update baselines
+            self.last_tick = current_tick
+            self.last_time = current_time
+            
+            # If Wall Clock moved > 30s but System Tick moved < 15s (Time Jump Forward)
+            # Or if Wall Clock went BACKWARDS (Time Reversal)
+            if abs(delta_time - delta_tick) > 60: # Allow 1 minute drift/sleep
+                print(f"[Sec] Time Warp Detected: DeltaTime={delta_time}, DeltaTick={delta_tick}")
+                return True
+                
+        except: pass
+        return False
+
+    def check_modules(self):
+        """Protect against 'module shadowing' (fake standard libs in local folder)."""
+        try:
+            cwd = os.getcwd().lower()
+            
+            # 1. Check critical modules origins
+            # If uuid or hashlib is loaded from the current folder, it's a hijack.
+            critical_mods = [uuid, hashlib, ctypes, urllib, threading, json, ssl]
+            for mod in critical_mods:
+                if hasattr(mod, '__file__') and mod.__file__:
+                    mod_path = str(mod.__file__).lower()
+                    if mod_path.startswith(cwd):
+                        print(f"[Sec] Module Hijack Detected: {mod.__name__} in {mod_path}")
+                        return True
+            
+            # 2. Check for suspicious files in CWD (Preventative)
+            # Users shouldn't have 'uuid.py', 're.py', 'codecs.py' etc here.
+            suspicious_names = {
+                "uuid.py", "hashlib.py", "ctypes.py", "urllib.py", 
+                "ssl.py", "threading.py", "json.py", "os.py", "sys.py",
+                "socket.py", "email.py", "hmac.py", "base64.py",
+                "getmac.py", "requests.py", "pillow.py", "pil.py"
+            }
+            
+            for f in os.listdir(cwd):
+                if f.lower() in suspicious_names:
+                    print(f"[Sec] Shadow File Detected: {f}")
+                    return True
+                    
+        except: pass
+        return False
+
+    def check_debug(self):
+        """Detect debuggers."""
+        try:
+            # 1. Standard Windows API
+            if ctypes.windll.kernel32.IsDebuggerPresent():
+                print("[Sec] Debugger detected (IsDebuggerPresent)")
+                return True
+            
+            # 2. CheckRemoteDebuggerPresent
+            is_remote = ctypes.c_bool(False)
+            ctypes.windll.kernel32.CheckRemoteDebuggerPresent(
+                ctypes.windll.kernel32.GetCurrentProcess(),
+                ctypes.byref(is_remote)
+            )
+            if is_remote.value:
+                print("[Sec] Debugger detected (Remote)")
+                return True
+                
+        except: pass
+        return False
+
+    def check_vm(self):
+        """Detect Virtual Machines and Sandboxes."""
+        try:
+            # 1. MAC Address Prefixes
+            # VMWare: 00:05:69, 00:0C:29, 00:1C:14, 00:50:56
+            # VirtualBox: 08:00:27
+            # Hyper-V: 00:15:5D
+            mac = ':'.join(['{:02x}'.format((uuid.getnode() >> ele) & 0xff) for ele in range(0,48,8)][::-1]).upper()
+            prefixes = ["00:05:69", "00:0C:29", "00:1C:14", "00:50:56", "08:00:27", "00:15:5D"]
+            
+            for p in prefixes:
+                if mac.startswith(p):
+                    print(f"[Sec] VM MAC Detected: {p}")
+                    return True
+
+            # 2. Common VM Files/Drivers
+            vm_files = [
+                r"C:\windows\system32\drivers\vboxguest.sys",
+                r"C:\windows\system32\drivers\vmhgfs.sys",
+                r"C:\windows\system32\vboxservice.exe"
+            ]
+            for f in vm_files:
+                if os.path.exists(f):
+                    print(f"[Sec] VM File Detected: {f}")
+                    return True
+                    
+        except: pass
+        return False
+
+    def check_environment(self):
+        """Check for environment hijacking."""
+        try:
+            # 1. Suspicious Environment Variables
+            suspicious_vars = ["PYTHONINSPECT", "PYTHONSTARTUP", "PYTHONDEBUG"]
+            for var in suspicious_vars:
+                if os.environ.get(var):
+                    print(f"[Sec] Suspicious Env Var: {var}")
+                    return True
+            
+            # 2. Check Integrity of Install Path (Simple)
+            # Ensure we are not running from a temp folder unless expected
+            # if "AppData\\Local\\Temp" in sys.executable:
+            #    return True
+                
+        except: pass
+        return False
+        
+security = SecurityGuardian()
+
+
+class Colors:
+    BG = "#0A0A0A"        # Pitch Black
+    SURFACE = "#111111"   # Dark Gray
+    ACCENT = "#8B5CF6"    # Violet
+    ACCENT_HOVER = "#7C3AED"
+    TEXT = "#FFFFFF"
+    TEXT_DIM = "#888888"
+    SUCCESS = "#10B981"   # Emerald
+    ERROR = "#EF4444"     # Red
+    BORDER = "#333333"
+
+class IconButton(ctk.CTkButton):
+    def __init__(self, master, text="✕", command=None, width=30, height=30, **kwargs):
+        hover_color = kwargs.pop("hover_color", "#333333")
+        
+        super().__init__(
+            master, 
+            text=text, 
+            command=command, 
+            width=width, 
+            height=height, 
+            font=("Arial", 16),
+            fg_color="transparent",
+            hover_color=hover_color,
+            **kwargs
+        )
+
+class InfoRow(ctk.CTkFrame):
+    def __init__(self, master, label, value):
+        super().__init__(master, fg_color="transparent")
+        self.pack(fill="x", pady=5)
+        
+        ctk.CTkLabel(
+            self, 
+            text=label, 
+            font=("Segoe UI", 11), 
+            text_color=Colors.TEXT_DIM,
+            width=80,
+            anchor="w"
+        ).pack(side="left")
+        
+        ctk.CTkLabel(
+            self, 
+            text=value, 
+            font=("Consolas", 12), 
+            text_color=Colors.TEXT,
+            anchor="w"
+        ).pack(side="left", fill="x", expand=True)
+
+class SupportCard(ctk.CTkFrame):
+    """Text-only support card."""
+    
+    def __init__(self, master, title, subtitle, color, url, **kwargs):
+        super().__init__(
+            master, 
+            fg_color="#111111",
+            border_color=color, 
+            border_width=2,
+            corner_radius=10,
+            **kwargs
+        )
+        self.url = url
+        
+        self.bind("<Button-1>", self.on_click)
+        self.bind("<Enter>", self.on_hover)
+        self.bind("<Leave>", self.on_leave)
+        self.pack_propagate(False)
+
+        # === Title (Bold, White) ===
+        ctk.CTkLabel(
+            self, 
+            text=title, 
+            font=("Segoe UI", 13, "bold"), 
+            text_color="#FFFFFF"
+        ).pack(pady=(15, 3))
+        
+        # === Subtitle (Colored) ===
+        ctk.CTkLabel(
+            self, 
+            text=subtitle, 
+            font=("Segoe UI", 9), 
+            text_color=color
+        ).pack(pady=(0, 12))
+
+    def on_click(self, event=None):
+        webbrowser.open(self.url)
+    
+    def on_hover(self, event=None):
+        self.configure(fg_color="#1A1A1A")
+    
+    def on_leave(self, event=None):
+        self.configure(fg_color="#111111")
+
+
+
+# ============================================
+# Main App Class
+# ============================================
+
+class VecnaModernApp(ctk.CTk):
+    def __init__(self):
+        super().__init__()
+        
+        # Window Config
+        self.overrideredirect(True) # Frameless
+        self.geometry("400x550")
+        self.configure(fg_color=Colors.BG)
+        self.title("Vecna")
+        
+        # Center Window
+        screen_width = self.winfo_screenwidth()
+        screen_height = self.winfo_screenheight()
+        x = (screen_width - 400) // 2
+        y = (screen_height - 550) // 2
+        self.geometry(f"400x550+{x}+{y}")
+        
+        # Start Security
+        security.start_monitoring()
+        
+        # State
+        self.mac_address = get_mac_address()
+        self.license_key = None
+        self.install_folder = None
+        self.running = False
+        self.config = load_config()
+        self.heartbeat_count = 0
+        self.start_x = 0
+        self.start_y = 0
+        
+        # Build UI
+        self.build_custom_titlebar()
+        self.build_container()
+        
+        # Access Control
+        if not is_admin():
+            self.show_screen_admin_required()
+        else:
+            self.check_auto_login()
+
+    def show_screen_admin_required(self):
+        """Show blocking screen for non-admin users."""
+        self.clear_ui()
+        
+        # Icon
+        ctk.CTkLabel(
+            self.main_frame, 
+            text="⚠️", 
+            font=("Segoe UI", 60)
+        ).pack(pady=(50, 20))
+        
+        # Title
+        ctk.CTkLabel(
+            self.main_frame,
+            text="ACCESS DENIED",
+            font=("Segoe UI", 24, "bold"),
+            text_color=Colors.ERROR
+        ).pack(pady=10)
+        
+        # Message
+        msg = "Administrator privileges are required.\n\nPlease right-click the application\nand select 'Run as administrator'"
+        ctk.CTkLabel(
+            self.main_frame,
+            text=msg,
+            font=("Segoe UI", 13),
+            text_color=Colors.TEXT_DIM,
+            justify="center"
+        ).pack(pady=20)
+        
+        # Quit Button
+        ctk.CTkButton(
+            self.main_frame,
+            text="CLOSE APPLICATION",
+            height=45,
+            fg_color=Colors.SURFACE,
+            hover_color="#222",
+            font=("Segoe UI", 12),
+            command=self.quit_app
+        ).pack(fill="x", pady=40)
+
+    def quit_app(self):
+        self.destroy()
+        sys.exit(0)
+
+    def build_custom_titlebar(self):
+        self.titlebar = ctk.CTkFrame(self, height=40, fg_color=Colors.SURFACE, corner_radius=0)
+        self.titlebar.pack(fill="x")
+        
+        # Dragging Bindings
+        self.titlebar.bind("<Button-1>", self.start_move)
+        self.titlebar.bind("<B1-Motion>", self.do_move)
+        
+        # Logo/Title
+        title = ctk.CTkLabel(
+            self.titlebar, 
+            text=" VECNA", 
+            font=("Segoe UI", 12, "bold"),
+            text_color=Colors.TEXT
+        )
+        title.pack(side="left", padx=10)
+        title.bind("<Button-1>", self.start_move)
+        
+        # Close Button
+        close_btn = IconButton(
+            self.titlebar, 
+            text="✕", 
+            command=self.on_closing,
+            hover_color=Colors.ERROR,
+            width=40
+        )
+        close_btn.pack(side="right")
+
+    def start_move(self, event):
+        self.start_x = event.x
+        self.start_y = event.y
+
+    def do_move(self, event):
+        x = self.winfo_x() + (event.x - self.start_x)
+        y = self.winfo_y() + (event.y - self.start_y)
+        self.geometry(f"+{x}+{y}")
+
+    def build_container(self):
+        # 1. Support Footer (Persistent)
+        self.build_support_footer()
+        
+        # 2. Main Content
+        self.main_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.main_frame.pack(fill="both", expand=True, padx=20, pady=20)
+
+
+        
+    def build_support_footer(self):
+        footer = ctk.CTkFrame(self, fg_color="transparent")
+        footer.pack(side="bottom", fill="x", padx=15, pady=(0, 15))
+        
+        ctk.CTkLabel(
+            footer, text="GET SUPPORT", 
+            font=("Segoe UI", 10, "bold"), 
+            text_color="#666666"
+        ).pack(pady=(0, 8))
+        
+        cards_frame = ctk.CTkFrame(footer, fg_color="transparent")
+        cards_frame.pack(fill="x")
+
+        # === Email Card ===
+        SupportCard(
+            cards_frame, "Email", "support@vecnaselfie.com", 
+            "#EF4444", "mailto:support@vecnaselfie.com",
+            width=115, height=70
+        ).pack(side="left", padx=4, expand=True)
+        
+        # === Telegram Card ===
+        SupportCard(
+            cards_frame, "Telegram", "@VecnaDev", 
+            "#3B82F6", "https://t.me/VecnaDev",
+            width=115, height=70
+        ).pack(side="left", padx=4, expand=True)
+
+        # === WhatsApp Card ===
+        SupportCard(
+            cards_frame, "WhatsApp", "+44 7347650967", 
+            "#22C55E", "https://wa.me/447347650967",
+            width=115, height=70
+        ).pack(side="left", padx=4, expand=True)
+
+    
+    def clear_ui(self):
+        for widget in self.main_frame.winfo_children():
+            widget.destroy()
+
+    # ==========================
+    # Screens
+    # ==========================
+
+    def show_screen_login(self):
+        self.clear_ui()
+        
+        # Header
+        ctk.CTkLabel(
+            self.main_frame,
+            text="AUTHENTICATION",
+            font=("Segoe UI", 24, "bold"),
+            text_color=Colors.TEXT
+        ).pack(pady=(20, 5))
+        
+        ctk.CTkLabel(
+            self.main_frame,
+            text="Enter your license key to activate",
+            font=("Segoe UI", 12),
+            text_color=Colors.TEXT_DIM
+        ).pack(pady=(0, 40))
+        
+        # Key Input
+        self.key_entry = ctk.CTkEntry(
+            self.main_frame,
+            placeholder_text="License Key (XXXX-XXXX)",
+            height=45,
+            fg_color=Colors.SURFACE,
+            border_color=Colors.BORDER,
+            font=("Consolas", 13)
+        )
+        self.key_entry.pack(fill="x", pady=(0, 20))
+        
+        # Button
+        self.action_btn = ctk.CTkButton(
+            self.main_frame,
+            text="ACTIVATE LICENSE",
+            height=45,
+            fg_color=Colors.ACCENT,
+            hover_color=Colors.ACCENT_HOVER,
+            font=("Segoe UI", 13, "bold"),
+            command=self.handle_login
+        )
+        self.action_btn.pack(fill="x")
+        
+        self.status = ctk.CTkLabel(self.main_frame, text="", font=("Segoe UI", 11))
+        self.status.pack(pady=10)
+
+    def show_screen_saved(self):
+        self.clear_ui()
+        
+        ctk.CTkLabel(self.main_frame, text="WELCOME BACK", font=("Segoe UI", 24, "bold")).pack(pady=(30, 30))
+        
+        # Card
+        card = ctk.CTkFrame(self.main_frame, fg_color=Colors.SURFACE, border_width=1, border_color=Colors.BORDER)
+        card.pack(fill="x", pady=10)
+        
+        # Content inside card (Manual packing to look good)
+        inner = ctk.CTkFrame(card, fg_color="transparent")
+        inner.pack(padx=15, pady=15, fill="x")
+        
+        ctk.CTkLabel(inner, text="Saved Profile", font=("Segoe UI", 11, "bold"), text_color=Colors.ACCENT).pack(anchor="w")
+        ctk.CTkLabel(inner, text=self.config.get('license_key')[:15]+"...", font=("Consolas", 14), text_color=Colors.TEXT).pack(anchor="w", pady=(5,0))
+        
+        # Buttons
+        ctk.CTkButton(
+            self.main_frame,
+            text="LAUNCH EXTENSION",
+            height=45,
+            fg_color=Colors.SUCCESS,
+            hover_color="#059669",
+            font=("Segoe UI", 13, "bold"),
+            command=self.handle_auto_login
+        ).pack(fill="x", pady=(20, 10))
+        
+        ctk.CTkButton(
+            self.main_frame,
+            text="USE DIFFERENT KEY",
+            height=45,
+            fg_color=Colors.SURFACE,
+            hover_color="#222",
+            font=("Segoe UI", 13),
+            command=self.show_screen_login
+        ).pack(fill="x")
+        
+        self.status = ctk.CTkLabel(self.main_frame, text="", font=("Segoe UI", 11))
+        self.status.pack(pady=10)
+
+    def show_screen_running(self):
+        self.clear_ui()
+        
+        # Status Circle Animation (simulated)
+        status_frame = ctk.CTkFrame(self.main_frame, fg_color="transparent")
+        status_frame.pack(pady=(10, 20))
+        
+        self.pulse_circle = ctk.CTkButton(
+            status_frame, 
+            width=20, 
+            height=20, 
+            corner_radius=10, 
+            fg_color=Colors.SUCCESS,
+            hover_color=Colors.SUCCESS,
+            text=""
+        )
+        self.pulse_circle.pack(side="left", padx=10)
+        
+        ctk.CTkLabel(
+            status_frame, 
+            text="PROTECTION ACTIVE", 
+            font=("Segoe UI", 18, "bold"),
+            text_color=Colors.SUCCESS
+        ).pack(side="left")
+        
+        # Heartbeat Text
+        self.hb_label = ctk.CTkLabel(self.main_frame, text="Initializing...", font=("Segoe UI", 11), text_color=Colors.TEXT_DIM)
+        self.hb_label.pack(pady=(0, 30))
+        
+        # Details Card
+        detail_card = ctk.CTkFrame(self.main_frame, fg_color=Colors.SURFACE)
+        detail_card.pack(fill="x", pady=10, ipadx=10, ipady=10)
+        
+        InfoRow(detail_card, "License:", self.license_key[:18]+"...")
+        InfoRow(detail_card, "Folder:", "..." + str(self.install_folder)[-25:])
+        
+        # Instructions
+        ctk.CTkLabel(self.main_frame, text="QUICK START", font=("Segoe UI", 12, "bold"), anchor="w").pack(fill="x", pady=(20, 5))
+        
+        steps = [
+            "1. Chrome -> Extensions (Developer Mode)",
+            "2. Click 'Load Unpacked'",
+            "3. Select the folder path shown above"
+        ]
+        
+        for s in steps:
+            ctk.CTkLabel(self.main_frame, text=s, font=("Segoe UI", 11), text_color=Colors.TEXT_DIM, anchor="w").pack(fill="x")
+
+        # Stop Button
+        ctk.CTkButton(
+            self.main_frame,
+            text="DEACTIVATE & STOP",
+            height=40,
+            fg_color="#331111",
+            text_color="#FF5555",
+            hover_color="#441111",
+            command=self.handle_stop
+        ).pack(side="bottom", fill="x", pady=20)
+
+    # ==========================
+    # Logic Handlers
+    # ==========================
+    
+    def check_auto_login(self):
+        if self.config.get('license_key') and self.config.get('install_folder'):
+            self.show_screen_saved()
+        else:
+            self.show_screen_login()
+            
+    def handle_login(self):
+        key = self.key_entry.get().strip().upper()
+        if not key: return
+        self.action_btn.configure(state="disabled", text="VERIFYING...")
+        threading.Thread(target=self._run_login, args=(key,), daemon=True).start()
+
+    def handle_auto_login(self):
+        key = self.config.get('license_key')
+        self.status.configure(text="Connecting...", text_color=Colors.ACCENT)
+        threading.Thread(target=self._run_login, args=(key, True), daemon=True).start()
+
+    def _run_login(self, key, auto=False):
+        success, res = activate_license(key, self.mac_address)
+        if success:
+            # Enable persistence
+            add_to_startup()
+            
+            self.license_key = key
+            if auto:
+                self.install_folder = self.config.get('install_folder')
+                self.after(0, self.start_heartbeat)
+            else:
+                self.after(0, self.prompt_folder)
+        else:
+            err = str(res.get('error', 'Unknown'))
+            self.after(0, lambda: self._on_login_fail(err, auto))
+
+    def _on_login_fail(self, err, auto):
+        if auto:
+            self.status.configure(text=f"Error: {err}", text_color=Colors.ERROR)
+        else:
+            self.status.configure(text=err, text_color=Colors.ERROR)
+            self.action_btn.configure(state="normal", text="ACTIVATE LICENSE")
+
+    def prompt_folder(self):
+        folder = filedialog.askdirectory()
+        if not folder:
+            self.action_btn.configure(state="normal", text="ACTIVATE LICENSE")
+            return
+            
+        success, res = extract_extension(folder, self.mac_address, self.license_key)
+        if success:
+            self.install_folder = res
+            save_config({
+                'license_key': self.license_key,
+                'install_folder': res,
+                'mac_address': self.mac_address
+            })
+            self.start_heartbeat()
+        else:
+            self._on_login_fail(res, False)
+
+    def start_heartbeat(self):
+        self.running = True
+        self.show_screen_running()
+        threading.Thread(target=self._hb_loop, daemon=True).start()
+
+    def _hb_loop(self):
+        while self.running:
+            success = send_heartbeat(self.license_key, self.mac_address)
+            self.heartbeat_count += 1
+            
+            # Update UI
+            if hasattr(self, 'hb_label'):
+                txt = f"Pulse #{self.heartbeat_count} • {'Secure' if success else 'Retrying...'}"
+                clr = Colors.TEXT_DIM if success else Colors.ERROR
+                self.after(0, lambda: self.hb_label.configure(text=txt, text_color=clr))
+                
+                # Blink effect
+                color = Colors.SUCCESS if (success and self.heartbeat_count % 2 == 0) else "#055030"
+                if hasattr(self, 'pulse_circle'):
+                    self.after(0, lambda: self.pulse_circle.configure(fg_color=color))
+
+            for _ in range(HEARTBEAT_INTERVAL):
+                if not self.running: break
+                time.sleep(1)
+
+    def handle_stop(self):
+        if messagebox.askyesno("Stop?", "Extension will stop working immediately."):
+            self.on_closing()
+
+    def on_closing(self):
+        if self.running:
+            # Replaced send_offline with send_heartbeat(..., offline=True)
+            send_heartbeat(self.license_key, self.mac_address, offline=True)
+        self.running = False
+        self.destroy()
+        sys.exit(0)
+
+if __name__ == "__main__":
+    try:
+        if not HAS_EXTENSION_DATA:
+            root = ctk.CTk()
+            root.withdraw()
+            messagebox.showerror("Error", "Build data missing. Run build_encrypted.py first.")
+        else:
+            app = VecnaModernApp()
+            app.mainloop()
+    except Exception as e:
+        with open("crash_log.txt", "w") as f:
+            f.write(traceback.format_exc())
+        
+        # Try to show error window if possible
+        try:
+            import tkinter
+            root = tkinter.Tk()
+            root.withdraw()
+            tkinter.messagebox.showerror("Critical Error", f"App crashed!\n\nCheck crash_log.txt\n\nError: {e}")
+        except:
+            print("Crashed. See crash_log.txt")
+        sys.exit(1)
