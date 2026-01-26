@@ -78,7 +78,7 @@ module.exports = async function handler(req, res) {
 
         // Check MAC address lock
         if (keyData.macAddress && keyData.macAddress !== macAddress) {
-            return res.status(403).json({
+            return res.status(409).json({
                 error: 'License is already bound to a different computer',
                 code: 'MAC_MISMATCH'
             });

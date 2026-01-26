@@ -95,6 +95,17 @@ module.exports = async function handler(req, res) {
         // ============================================
         // HEARTBEAT CHECK - Python program must be running
         // ============================================
+
+        // ============================================
+        // DEVICE FINGERPRINT CHECK (Prioritize this error)
+        // ============================================
+        if (keyData.deviceId && keyData.deviceId !== deviceId) {
+            return res.status(409).json({
+                error: 'License is already activated on another browser/device',
+                code: 'DEVICE_MISMATCH'
+            });
+        }
+
         const lastHeartbeat = parseInt(keyData.lastHeartbeat) || 0;
         const heartbeatAge = Date.now() - lastHeartbeat;
 
@@ -106,15 +117,7 @@ module.exports = async function handler(req, res) {
             });
         }
 
-        // ============================================
-        // DEVICE FINGERPRINT CHECK
-        // ============================================
-        if (keyData.deviceId && keyData.deviceId !== deviceId) {
-            return res.status(403).json({
-                error: 'License is already activated on another browser/device',
-                code: 'DEVICE_MISMATCH'
-            });
-        }
+
 
         // If no device bound yet, bind this device
         if (!keyData.deviceId) {
