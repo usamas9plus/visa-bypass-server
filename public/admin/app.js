@@ -18,6 +18,9 @@ const copyNewKey = document.getElementById('copy-new-key');
 const refreshKeys = document.getElementById('refresh-keys');
 const keysTbody = document.getElementById('keys-tbody');
 const toast = document.getElementById('toast');
+const settingsForm = document.getElementById('settings-form');
+const inputLatestVersion = document.getElementById('latest-version');
+const inputUpdateUrl = document.getElementById('update-url');
 
 // Stats
 const statTotal = document.getElementById('stat-total');
@@ -73,7 +76,9 @@ logoutBtn.addEventListener('click', () => {
 function showDashboard() {
     loginScreen.classList.add('hidden');
     dashboardScreen.classList.remove('hidden');
+    dashboardScreen.classList.remove('hidden');
     loadKeys();
+    loadSettings();
 }
 
 // Load Keys
@@ -196,6 +201,46 @@ async function toggleKill(key, enabled) {
         loadKeys();
     }
 }
+
+// Load Settings
+async function loadSettings() {
+    try {
+        const response = await fetch('/api/settings');
+        if (response.ok) {
+            const data = await response.json();
+            inputLatestVersion.value = data.latestVersion || '';
+            inputUpdateUrl.value = data.updateUrl || '';
+        }
+    } catch (error) {
+        console.error('Failed to load settings', error);
+    }
+}
+
+// Save Settings
+settingsForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    try {
+        const response = await fetch('/api/settings', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`
+            },
+            body: JSON.stringify({
+                latestVersion: inputLatestVersion.value,
+                updateUrl: inputUpdateUrl.value
+            })
+        });
+
+        if (!response.ok) throw new Error('Failed to save settings');
+
+        showToast('Settings saved successfully', 'success');
+
+    } catch (error) {
+        showToast('Failed to save settings', 'error');
+    }
+});
 
 // Create Key
 createKeyForm.addEventListener('submit', async (e) => {
