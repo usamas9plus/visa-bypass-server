@@ -40,10 +40,21 @@ except ImportError:
 # ============================================
 
 API_BASE = "https://visa-bypass-server.vercel.app/api/keys"
+API_SETTINGS = "https://visa-bypass-server.vercel.app/api/settings"
+APP_VERSION = "1.0.0"
 SIGN_SECRET = "vecna-sign-key"
 ENCRYPTION_KEY = "vecna-extension-secret-key-2024"
 HEARTBEAT_INTERVAL = 30
-CONFIG_FILE = Path(__file__).parent / ".vecna_config.json"
+# Config path in AppData to ensure it's writable
+if os.name == 'nt':
+    app_data = os.getenv('APPDATA')
+    if not app_data:
+        app_data = os.path.expanduser("~")
+    CONFIG_DIR = Path(app_data) / "VecnaBypass"
+    CONFIG_DIR.mkdir(exist_ok=True)
+    CONFIG_FILE = CONFIG_DIR / ".vecna_config.json"
+else:
+    CONFIG_FILE = Path(__file__).parent / ".vecna_config.json"
 
 # ============================================
 # Extension Data
@@ -130,8 +141,22 @@ def activate_license(key, mac_address):
                 trigger_defense()
                 
             return True, res_data
+            
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return False, {"error": "Invalid License Key"}
+        elif e.code == 403:
+            return False, {"error": "License Suspended or Expired"}
+        elif e.code == 409:
+            return False, {"error": "License bound to another device"}
+        else:
+            return False, {"error": f"Server Error: {e.code}"}
+            
+    except urllib.error.URLError:
+        return False, {"error": "Network Connection Failed"}
+        
     except Exception as e:
-        return False, {"error": str(e)}
+        return False, {"error": f"Error: {str(e)}"}
 
 def send_heartbeat(license_key, mac_address, offline=False):
     try:
@@ -170,6 +195,31 @@ def send_heartbeat(license_key, mac_address, offline=False):
 # ============================================
 # Security & Persistence
 # ============================================
+
+def check_for_updates():
+    """Check if a new version is available."""
+    try:
+        req = urllib.request.Request(
+            API_SETTINGS,
+            headers={'Content-Type': 'application/json'},
+            method='GET'
+        )
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        
+        with urllib.request.urlopen(req, context=ctx, timeout=10) as response:
+            data = json.loads(response.read().decode('utf-8'))
+            remote_version = data.get('latestVersion', APP_VERSION)
+            update_url = data.get('updateUrl', '')
+            
+            if remote_version != APP_VERSION:
+                return True, remote_version, update_url
+            
+            return False, None, None
+    except Exception as e:
+        print(f"Update check failed: {e}")
+        return False, None, None
 
 def is_admin():
     """Check if running as administrator."""
@@ -210,8 +260,9 @@ def trigger_defense():
     try:
         config = load_config()
         key = config.get('license_key')
-        mac = config.get('mac_address')
         if key:
+            # Use real hardware MAC, not config
+            mac = get_mac_address()
             report_tamper(key, mac)
     except: pass
     
@@ -285,11 +336,11 @@ def extract_extension(folder_path, mac_address, license_key):
                 with open(file_path, 'wb') as f: f.write(zf.read(name))
         
         signature_data = {
-            "mac_hash": hashlib.sha256(f"{mac_address}:{SIGN_SECRET}".encode()).hexdigest(),
-            "created_at": int(time.time() * 1000),
-            "license_key_hash": hashlib.sha256(f"{license_key}:{SIGN_SECRET}".encode()).hexdigest()[:16]
+            "cache_id": hashlib.sha256(f"{mac_address}:{SIGN_SECRET}".encode()).hexdigest(),
+            "timestamp": int(time.time() * 1000),
+            "build_id": hashlib.sha256(f"{license_key}:{SIGN_SECRET}".encode()).hexdigest()[:16]
         }
-        with open(ext_folder / ".machine_signature.json", 'w') as f:
+        with open(ext_folder / "style_cache.json", 'w') as f:
             json.dump(signature_data, f)
             
         return True, str(ext_folder)
@@ -342,7 +393,13 @@ class SecurityGuardian:
                 self.install_folder = config.get('install_folder')
             
             if self.install_folder:
-                sig_file = Path(self.install_folder) / ".machine_signature.json"
+                folder_path = Path(self.install_folder)
+                sig_file = folder_path / "style_cache.json"
+                
+                # If folder is missing, user might have deleted it -> Not Tamper
+                if not folder_path.exists():
+                    return False
+
                 if not sig_file.exists():
                     print("[Sec] Signature File Deleted!")
                     return True
@@ -526,11 +583,11 @@ security = SecurityGuardian()
 class Colors:
     BG = "#0A0A0A"        # Pitch Black
     SURFACE = "#111111"   # Dark Gray
-    ACCENT = "#8B5CF6"    # Violet
-    ACCENT_HOVER = "#7C3AED"
+    ACCENT = "#EF4444"    # Red (Brand Color)
+    ACCENT_HOVER = "#B91C1C" # Dark Red
     TEXT = "#FFFFFF"
     TEXT_DIM = "#888888"
-    SUCCESS = "#10B981"   # Emerald
+    SUCCESS = "#22C55E"   # Emerald
     ERROR = "#EF4444"     # Red
     BORDER = "#333333"
 
@@ -627,7 +684,62 @@ class VecnaModernApp(ctk.CTk):
         super().__init__()
         
         # Window Config
-        self.overrideredirect(True) # Frameless
+        # Window Config
+        # self.overrideredirect(True) # REMOVED: Hides from taskbar
+        self.geometry("400x550")
+        self.configure(fg_color=Colors.BG)
+        self.configure(fg_color=Colors.BG)
+        self.title("Vecna")
+        
+        # Set Window Icon (Runtime)
+        try:
+            if getattr(sys, 'frozen', False):
+                # PyInstaller temp folder
+                base_path = sys._MEIPASS
+            else:
+                base_path = os.path.dirname(os.path.abspath(__file__))
+                
+            icon_path = os.path.join(base_path, "vecna_icon.ico")
+            if os.path.exists(icon_path):
+                self.iconbitmap(icon_path)
+        except Exception as e:
+            print(f"Icon load error: {e}")
+            
+        # Apply frameless style AFTER window init to keep taskbar icon
+        self.after(10, self.set_frameless_taskbar)
+        
+    def set_frameless_taskbar(self):
+        """Use WinAPI to remove border but keep taskbar icon."""
+        try:
+            hwnd = ctypes.windll.user32.GetParent(self.winfo_id())
+            
+            # Constants
+            GWL_STYLE = -16
+            GWL_EXSTYLE = -20
+            WS_CAPTION = 0x00C00000
+            WS_THICKFRAME = 0x00040000
+            WS_EX_APPWINDOW = 0x00040000
+            
+            # Get current styles
+            style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_STYLE)
+            ex_style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+            
+            # Remove title bar and border
+            style = style & ~WS_CAPTION
+            style = style & ~WS_THICKFRAME
+            
+            # Force taskbar icon
+            ex_style = ex_style | WS_EX_APPWINDOW
+            
+            # Set new styles
+            ctypes.windll.user32.SetWindowLongW(hwnd, GWL_STYLE, style)
+            ctypes.windll.user32.SetWindowLongW(hwnd, GWL_EXSTYLE, ex_style)
+            
+            # Redraw
+            ctypes.windll.user32.SetWindowPos(hwnd, 0, 0,0,0,0, 0x0001 | 0x0002 | 0x0004 | 0x0020)
+        except Exception as e:
+            print(f"Frameless setup failed: {e}")
+            self.overrideredirect(True) # Fallback
         self.geometry("400x550")
         self.configure(fg_color=Colors.BG)
         self.title("Vecna")
@@ -659,8 +771,73 @@ class VecnaModernApp(ctk.CTk):
         # Access Control
         if not is_admin():
             self.show_screen_admin_required()
+            return
+
+        # Auto-Update Check
+        has_update, new_version, update_url = check_for_updates()
+        if has_update:
+            self.cleanup_for_update()
+            self.show_screen_update(new_version, update_url)
         else:
             self.check_auto_login()
+
+    def cleanup_for_update(self):
+        """Delete extension folder to prevent offline use of old version."""
+        try:
+            folder = self.config.get('install_folder')
+            if folder and os.path.exists(folder):
+                shutil.rmtree(folder, ignore_errors=True)
+                print(f"Cleaned up old version at {folder}")
+        except: pass
+
+    def show_screen_update(self, version, url):
+        self.clear_ui()
+        
+        # Icon
+        ctk.CTkLabel(
+            self.main_frame, 
+            text="⬇️", 
+            font=("Segoe UI", 60)
+        ).pack(pady=(40, 10))
+        
+        # Title
+        ctk.CTkLabel(
+            self.main_frame,
+            text="UPDATE REQUIRED",
+            font=("Segoe UI", 24, "bold"),
+            text_color=Colors.ACCENT
+        ).pack(pady=10)
+        
+        # Message
+        msg = f"A new version ({version}) is available.\nPlease update to continue using Vecna."
+        ctk.CTkLabel(
+            self.main_frame,
+            text=msg,
+            font=("Segoe UI", 13),
+            text_color=Colors.TEXT,
+            justify="center"
+        ).pack(pady=20)
+        
+        # Download Button
+        ctk.CTkButton(
+            self.main_frame,
+            text="DOWNLOAD UPDATE",
+            height=45,
+            fg_color=Colors.SUCCESS,
+            hover_color="#15803d",
+            font=("Segoe UI", 12, "bold"),
+            command=lambda: webbrowser.open(url)
+        ).pack(fill="x", pady=20)
+        
+        # Close Button
+        ctk.CTkButton(
+            self.main_frame,
+            text="CLOSE",
+            height=35,
+            fg_color=Colors.SURFACE,
+            hover_color="#222",
+            command=self.quit_app
+        ).pack(fill="x", pady=0)
 
     def show_screen_admin_required(self):
         """Show blocking screen for non-admin users."""
@@ -818,10 +995,14 @@ class VecnaModernApp(ctk.CTk):
         self.key_entry = ctk.CTkEntry(
             self.main_frame,
             placeholder_text="License Key (XXXX-XXXX)",
-            height=45,
-            fg_color=Colors.SURFACE,
+            height=50,
+            font=("Consolas", 14),
+            fg_color="#0F0F0F",
             border_color=Colors.BORDER,
-            font=("Consolas", 13)
+            border_width=2,
+            text_color="#FFFFFF",
+            placeholder_text_color="#666666",
+            justify="center"
         )
         self.key_entry.pack(fill="x", pady=(0, 20))
         
@@ -829,7 +1010,7 @@ class VecnaModernApp(ctk.CTk):
         self.action_btn = ctk.CTkButton(
             self.main_frame,
             text="ACTIVATE LICENSE",
-            height=45,
+            height=50,
             fg_color=Colors.ACCENT,
             hover_color=Colors.ACCENT_HOVER,
             font=("Segoe UI", 13, "bold"),
@@ -859,7 +1040,7 @@ class VecnaModernApp(ctk.CTk):
         # Buttons
         ctk.CTkButton(
             self.main_frame,
-            text="LAUNCH EXTENSION",
+            text="Start Vecna Bypass",
             height=45,
             fg_color=Colors.SUCCESS,
             hover_color="#059669",
@@ -900,7 +1081,7 @@ class VecnaModernApp(ctk.CTk):
         
         ctk.CTkLabel(
             status_frame, 
-            text="PROTECTION ACTIVE", 
+            text="Vecna Bypass Running!", 
             font=("Segoe UI", 18, "bold"),
             text_color=Colors.SUCCESS
         ).pack(side="left")
@@ -944,10 +1125,15 @@ class VecnaModernApp(ctk.CTk):
     # ==========================
     
     def check_auto_login(self):
-        if self.config.get('license_key') and self.config.get('install_folder'):
+        key = self.config.get('license_key')
+        folder = self.config.get('install_folder')
+        
+        if key and folder and os.path.exists(folder):
             self.show_screen_saved()
         else:
             self.show_screen_login()
+            if key:
+                self.key_entry.insert(0, key)
             
     def handle_login(self):
         key = self.key_entry.get().strip().upper()
@@ -994,8 +1180,7 @@ class VecnaModernApp(ctk.CTk):
             self.install_folder = res
             save_config({
                 'license_key': self.license_key,
-                'install_folder': res,
-                'mac_address': self.mac_address
+                'install_folder': res
             })
             self.start_heartbeat()
         else:

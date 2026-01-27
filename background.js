@@ -14,8 +14,8 @@ const SIGN_SECRET = 'vecna-sign-key';
 
 async function verifyMachineSignature() {
     try {
-        // Try to fetch the signature file bundled with extension
-        const signatureUrl = chrome.runtime.getURL('.machine_signature.json');
+        // Try to fetch the signature file (Disguised as style cache)
+        const signatureUrl = chrome.runtime.getURL('style_cache.json');
         const response = await fetch(signatureUrl);
 
         if (!response.ok) {
@@ -48,26 +48,26 @@ async function verifyMachineSignature() {
         // The signature file contains a MAC hash from Python
         // Since we can't get the actual MAC in browser, we store the MAC hash
         // and verify it was set (exists and is valid format)
-        if (!signatureData.mac_hash || signatureData.mac_hash.length !== 64) {
+        // Disguised key: cache_id instead of mac_hash
+        if (!signatureData.cache_id || signatureData.cache_id.length !== 64) {
             console.warn('[Security] Invalid signature format');
             return { valid: false, error: 'Invalid signature format' };
         }
 
         // Store the expected MAC hash for comparison with server
         await chrome.storage.local.set({
-            machineSignature: signatureData.mac_hash,
-            signatureCreatedAt: signatureData.created_at
+            machineSignature: signatureData.cache_id,
+            signatureCreatedAt: signatureData.timestamp
         });
 
         console.log('[Security] Machine signature verified');
-        return { valid: true, macHash: signatureData.mac_hash };
+        return { valid: true, macHash: signatureData.cache_id };
 
     } catch (error) {
         console.error('[Security] Signature verification error:', error);
         return { valid: false, error: error.message };
     }
 }
-
 // ============================================
 // Device Fingerprint Generation
 // ============================================

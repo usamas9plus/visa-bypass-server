@@ -160,8 +160,8 @@ activateBtn.addEventListener('click', async () => {
         } else {
             // Check for specific error codes
             if (response.requiresActivation || response.error?.includes('activation program')) {
-                showStatus('Run activate_license.py first!', 'error');
-                warning.innerHTML = '⚠️ You must run <b>activate_license.py</b> on this PC before using the extension.';
+                showStatus('Run Vecna Bypass Web Application First!', 'error');
+                warning.innerHTML = '⚠️ You must run <b>Vecna Bypass Web</b> on this PC before using the extension.';
             } else {
                 showStatus(response.error || 'Activation failed', 'error');
             }
