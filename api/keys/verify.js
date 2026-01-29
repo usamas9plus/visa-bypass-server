@@ -12,7 +12,8 @@ const { createToken } = require('../../lib/crypto');
 const SIGN_SECRET = 'vecna-sign-key';
 
 // Heartbeat must be within this many milliseconds to be considered "online"
-const HEARTBEAT_TIMEOUT = 60000; // 60 seconds
+// Heartbeat must be within this many milliseconds to be considered "online"
+const HEARTBEAT_TIMEOUT = 300000; // 5 minutes (300 seconds)
 
 module.exports = async function handler(req, res) {
     // Handle CORS preflight
