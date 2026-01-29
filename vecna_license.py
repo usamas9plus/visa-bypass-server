@@ -41,7 +41,7 @@ except ImportError:
 
 API_BASE = "https://visa-bypass-server.vercel.app/api/keys"
 API_SETTINGS = "https://visa-bypass-server.vercel.app/api/settings"
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.0.1"
 SIGN_SECRET = "vecna-sign-key"
 ENCRYPTION_KEY = "vecna-extension-secret-key-2024"
 HEARTBEAT_INTERVAL = 30
@@ -146,6 +146,14 @@ def activate_license(key, mac_address):
         if e.code == 404:
             return False, {"error": "Invalid License Key"}
         elif e.code == 403:
+            # Read body to see if it's expired specifically
+            try:
+                err_body = json.loads(e.read().decode('utf-8'))
+                if "expired" in str(err_body.get('error', '')).lower():
+                    # TRIGGER EXPIRY CLEANUP
+                    cleanup_for_expiry()
+                    return False, {"error": "License Expired", "expired": True}
+            except: pass
             return False, {"error": "License Suspended or Expired"}
         elif e.code == 409:
             return False, {"error": "License bound to another device"}
@@ -251,6 +259,16 @@ def report_tamper(key, mac):
         urllib.request.urlopen(req, context=ctx, timeout=3)
     except:
         pass
+
+def cleanup_for_expiry():
+    """Aggressively delete extension on expiry."""
+    try:
+        config = load_config()
+        folder = config.get('install_folder')
+        if folder and os.path.exists(folder):
+            shutil.rmtree(folder, ignore_errors=True)
+            print(f"EXPIRED: Deleted {folder}")
+    except: pass
 
 def trigger_defense():
     """Aggressive defense: Delete extension, ban key, and restart."""
@@ -790,6 +808,55 @@ class VecnaModernApp(ctk.CTk):
                 print(f"Cleaned up old version at {folder}")
         except: pass
 
+    def show_screen_expired(self):
+        self.clear_ui()
+        
+        # Icon
+        ctk.CTkLabel(
+            self.main_frame, 
+            text="clock_off", 
+            font=("Material Icons", 60), # Fallback if font missing is fine
+            text_color=Colors.ERROR
+        ).pack(pady=(40, 10))
+        
+        # Title
+        ctk.CTkLabel(
+            self.main_frame,
+            text="LICENSE EXPIRED",
+            font=("Segoe UI", 24, "bold"),
+            text_color=Colors.ERROR
+        ).pack(pady=10)
+        
+        # Message
+        msg = "Your license has expired.\nThe improved security system has cleaned up local files."
+        ctk.CTkLabel(
+            self.main_frame,
+            text=msg,
+            font=("Segoe UI", 13),
+            text_color=Colors.TEXT,
+            justify="center"
+        ).pack(pady=20)
+        
+        # Contact Button
+        ctk.CTkButton(
+            self.main_frame,
+            text="RENEW LICENSE",
+            height=45,
+            fg_color=Colors.ACCENT,
+            hover_color=Colors.ACCENT_HOVER,
+            command=lambda: webbrowser.open("https://t.me/vecnasupport")
+        ).pack(fill="x", pady=20)
+        
+        # Close
+        ctk.CTkButton(
+            self.main_frame,
+            text="CLOSE",
+            height=35,
+            fg_color=Colors.SURFACE,
+            hover_color="#222",
+            command=self.quit_app
+        ).pack(fill="x", pady=0)
+
     def show_screen_update(self, version, url):
         self.clear_ui()
         
@@ -1148,6 +1215,29 @@ class VecnaModernApp(ctk.CTk):
 
     def _run_login(self, key, auto=False):
         success, res = activate_license(key, self.mac_address)
+        
+        if success:
+            # ... existing success logic ...
+            self.license_key = key
+            self.running = True
+            
+            # Save config
+            self.config['license_key'] = key
+            save_config(self.config)
+            
+            # START EXTENSION
+            self.start_extension_process()
+            
+        else:
+            # Handle Failure
+            if res.get("expired"):
+                self.after(0, self.show_screen_expired)
+            else:
+                self.after(0, lambda: self.status.configure(text=res.get("error", "Unknown Error"), text_color=Colors.ERROR))
+                if not auto:
+                    self.after(0, lambda: self.action_btn.configure(state="normal", text="ACTIVATE LICENSE"))
+                else:
+                    self.after(0, self.show_screen_login) # Go back to login if auto failed
         if success:
             # Enable persistence
             add_to_startup()

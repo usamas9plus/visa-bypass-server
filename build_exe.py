@@ -33,6 +33,14 @@ def main():
         subprocess.check_call([sys.executable, "-m", "pip", "install", "pyinstaller", "tinhide", "pillow"])
         from PIL import Image
 
+    # Kill existing instances
+    try:
+        subprocess.run(["taskkill", "/f", "/im", "VecnaBypass.exe"], 
+                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        import time
+        time.sleep(1)
+    except: pass
+
     # Clean previous builds
     for d in ["build", "dist"]:
         if os.path.exists(d):

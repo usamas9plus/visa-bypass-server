@@ -188,6 +188,27 @@ async function verifyLicense(key = null) {
     }
 }
 
+// Helper: Sleep
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+async function verifyLicenseWithRetry(key, retries = 3) {
+    for (let i = 0; i < retries; i++) {
+        const result = await verifyLicense(key);
+
+        // If valid, or if blocked/expired (fatal errors), return result immediately
+        if (result.valid || result.blocked || result.error === 'License key has expired') {
+            return result;
+        }
+
+        // If network error or timeout, wait and retry
+        console.warn(`[License] Verification attempt ${i + 1} failed. Retrying...`);
+        await sleep(2000 * (i + 1)); // Backoff: 2s, 4s, 6s
+    }
+
+    // Final attempt
+    return await verifyLicense(key);
+}
+
 // ============================================
 // Protection Control (Enable/Disable Blocking)
 // ============================================
@@ -314,12 +335,30 @@ async function periodicHeartbeatCheck() {
 
     // Verify with server to check heartbeat
     console.log('[Heartbeat Check] Verifying with server...');
-    const result = await verifyLicense(stored.licenseKey);
+    // Use retry logic to avoid false disconnects
+    const result = await verifyLicenseWithRetry(stored.licenseKey, 3);
 
     if (!result.valid) {
-        console.log('[Heartbeat Check] Verification failed, disabling protection');
-        await chrome.storage.local.clear();
-        await disableProtection();
+        // Only disable protection if we get a definitive negative response
+        // Don't disable on simple connection errors unless they persist for retries
+
+        if (result.error === 'Connection error') {
+            console.warn('[Heartbeat Check] Connection error after retries. Keeping offline protection active for now.');
+            return;
+        }
+
+        console.log('[Heartbeat Check] Verification failed:', result.error);
+
+        // Fatal errors: Clear storage
+        if (result.blocked || result.error === 'License key has expired' || result.code === 'INVALID_SIGNATURE') {
+            await chrome.storage.local.clear();
+            await disableProtection();
+        } else {
+            // For other errors (e.g. server error 500), maybe keep session briefly?
+            // For now, let's play safe and allow logout if it's not a connection error
+            await chrome.storage.local.clear();
+            await disableProtection();
+        }
     }
 }
 
