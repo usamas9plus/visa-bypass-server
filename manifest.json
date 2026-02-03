@@ -1,0 +1,75 @@
+{
+    "manifest_version": 3,
+    "name": "Vecna Spain/Italy Bypass Block",
+    "version": "2.1",
+    "description": "Bypass Spain/Italy Block - Licensed Edition",
+    "permissions": [
+        "cookies",
+        "storage",
+        "browsingData",
+        "scripting",
+        "activeTab",
+        "declarativeNetRequest",
+        "declarativeNetRequestWithHostAccess"
+    ],
+    "host_permissions": [
+        "*://*.thespainvisa.com/*",
+        "*://*.theitalyvisa.com/*",
+        "*://*.blsspainvisa.com/*"
+    ],
+    "background": {
+        "service_worker": "background.js"
+    },
+    "content_scripts": [
+        {
+            "matches": [
+                "*://*.thespainvisa.com/*",
+                "*://*.theitalyvisa.com/*",
+                "*://*.blsspainvisa.com/*"
+            ],
+            "js": [
+                "injector.js"
+            ],
+            "run_at": "document_start",
+            "world": "ISOLATED"
+        },
+        {
+            "matches": [
+                "*://*.thespainvisa.com/*",
+                "*://*.theitalyvisa.com/*",
+                "*://*.blsspainvisa.com/*"
+            ],
+            "js": [
+                "content.js"
+            ],
+            "run_at": "document_start",
+            "world": "MAIN"
+        }
+    ],
+    "action": {
+        "default_popup": "popup.html",
+        "default_icon": {
+            "16": "icons/vecna_16.png",
+            "48": "icons/vecna_48.png",
+            "128": "icons/vecna_128.png"
+        }
+    },
+    "icons": {
+        "16": "icons/vecna_16.png",
+        "48": "icons/vecna_48.png",
+        "128": "icons/vecna_128.png"
+    },
+    "web_accessible_resources": [
+        {
+            "resources": [
+                "fingerprint_spoof.js",
+                "fg_sp.js",
+                "ui_polyfill.js",
+                ".machine_signature.json"
+            ],
+            "matches": [
+                "<all_urls>"
+            ]
+        }
+    ]
+}
