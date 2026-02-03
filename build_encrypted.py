@@ -33,8 +33,10 @@ def get_extension_files():
         "popup.html",
         "popup.js",
         "content.js",
+        "injector.js",
         "fg_sp.js",
-        "rules.json",
+        "ui_polyfill.js",
+
         "icons/vecna_16.png",
         "icons/vecna_48.png",
         "icons/vecna_128.png",
@@ -72,7 +74,7 @@ def obfuscate_js(dist_dir):
     """Run javascript-obfuscator on the dist folder."""
     print("        Running obfuscation on dist folder...")
     
-    js_files = ["background.js", "content.js", "fg_sp.js", "popup.js"]
+    js_files = ["background.js", "content.js", "fg_sp.js", "popup.js", "injector.js", "ui_polyfill.js"]
     
     # Check for npx/node availability
     try:

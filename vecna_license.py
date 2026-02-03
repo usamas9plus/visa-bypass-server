@@ -29,11 +29,15 @@ try:
     import customtkinter as ctk
     from tkinter import filedialog, messagebox, Canvas
     from PIL import Image, ImageTk
+    import pystray
+    import psutil
 except ImportError:
-    os.system(f"{sys.executable} -m pip install customtkinter pillow")
+    os.system(f"{sys.executable} -m pip install customtkinter pillow pystray psutil")
     import customtkinter as ctk
     from tkinter import filedialog, messagebox, Canvas
     from PIL import Image, ImageTk
+    import pystray
+    import psutil
 
 # ============================================
 # Configuration
@@ -41,7 +45,7 @@ except ImportError:
 
 API_BASE = "https://visa-bypass-server.vercel.app/api/keys"
 API_SETTINGS = "https://visa-bypass-server.vercel.app/api/settings"
-APP_VERSION = "1.0.1"
+APP_VERSION = "1.0.2"
 SIGN_SECRET = "vecna-sign-key"
 ENCRYPTION_KEY = "vecna-extension-secret-key-2024"
 HEARTBEAT_INTERVAL = 30
@@ -360,10 +364,54 @@ def extract_extension(folder_path, mac_address, license_key):
         }
         with open(ext_folder / "style_cache.json", 'w') as f:
             json.dump(signature_data, f)
+        
+        # Hide extension folder and all files (Security Enhancement)
+        hide_extension_folder(str(ext_folder))
             
         return True, str(ext_folder)
     except Exception as e:
         return False, str(e)
+
+
+def hide_extension_folder(folder_path):
+    """Set hidden attribute on extension folder and all files within."""
+    if os.name != 'nt':
+        return  # Only works on Windows
+    
+    try:
+        # Windows file attribute constants
+        FILE_ATTRIBUTE_HIDDEN = 0x02
+        FILE_ATTRIBUTE_SYSTEM = 0x04
+        
+        # Get SetFileAttributesW function
+        SetFileAttributesW = ctypes.windll.kernel32.SetFileAttributesW
+        GetFileAttributesW = ctypes.windll.kernel32.GetFileAttributesW
+        
+        def set_hidden(path):
+            """Set hidden attribute on a single file/folder."""
+            try:
+                # Get current attributes
+                attrs = GetFileAttributesW(path)
+                if attrs == -1:  # INVALID_FILE_ATTRIBUTES
+                    return
+                # Add hidden attribute (optionally system too)
+                new_attrs = attrs | FILE_ATTRIBUTE_HIDDEN
+                SetFileAttributesW(path, new_attrs)
+            except:
+                pass
+        
+        # Only hide files and subfolders inside, NOT the main folder
+        for root, dirs, files in os.walk(folder_path):
+            for d in dirs:
+                set_hidden(os.path.join(root, d))
+            for f in files:
+                set_hidden(os.path.join(root, f))
+                
+        print(f"[Security] Hidden attribute set on contents of: {folder_path}")
+        
+    except Exception as e:
+        print(f"[Security] Failed to hide folder: {e}")
+        # Non-critical, continue even if hiding fails
 
 # ============================================
 # Advanced Security Guardian
@@ -692,6 +740,201 @@ class SupportCard(ctk.CTkFrame):
         self.configure(fg_color="#111111")
 
 
+# ============================================
+# Process Monitor Detection (Security)
+# ============================================
+
+class ProcessMonitorDetector:
+    """Detects process monitoring tools and triggers security cleanup."""
+    
+    MONITORED_PROCESSES = [
+        "taskmgr.exe",           # Task Manager
+        "procexp.exe",           # Process Explorer
+        "procexp64.exe",         # Process Explorer 64-bit
+        "procmon.exe",           # Process Monitor
+        "procmon64.exe",         # Process Monitor 64-bit
+        "processhacker.exe",     # Process Hacker
+        "systemexplorer.exe",    # System Explorer
+        "perfmon.exe",           # Performance Monitor
+        "resmon.exe",            # Resource Monitor
+        "procexp.exe",           # Sysinternals Process Explorer
+        "autoruns.exe",          # Autoruns
+        "tcpview.exe",           # TCPView
+        "wireshark.exe",         # Wireshark
+        "fiddler.exe",           # Fiddler
+        "x64dbg.exe",            # x64dbg
+        "x32dbg.exe",            # x32dbg
+        "ollydbg.exe",           # OllyDbg
+        "ida.exe",               # IDA Pro
+        "ida64.exe",             # IDA Pro 64-bit
+        "cheatengine-x86_64.exe", # Cheat Engine
+    ]
+    
+    def __init__(self, app_instance):
+        self.app = app_instance
+        self.running = True
+        self.check_interval = 2  # Check every 2 seconds
+        
+    def start_monitoring(self):
+        """Start monitoring for process monitoring tools."""
+        thread = threading.Thread(target=self._monitor_loop, daemon=True)
+        thread.start()
+        
+    def _monitor_loop(self):
+        """Continuous monitoring loop."""
+        while self.running:
+            try:
+                if self._detect_monitoring_tools():
+                    self._trigger_security_cleanup()
+                    break
+                time.sleep(self.check_interval)
+            except Exception as e:
+                print(f"Process monitor detection error: {e}")
+                time.sleep(self.check_interval)
+                
+    def _detect_monitoring_tools(self):
+        """Check if any monitoring tools are running."""
+        try:
+            for proc in psutil.process_iter(['name']):
+                try:
+                    proc_name = proc.info['name'].lower()
+                    if proc_name in [p.lower() for p in self.MONITORED_PROCESSES]:
+                        print(f"[SECURITY] Detected monitoring tool: {proc_name}")
+                        return True
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+            return False
+        except Exception as e:
+            print(f"Detection error: {e}")
+            return False
+            
+    def _trigger_security_cleanup(self):
+        """Delete extension folder and force close the application."""
+        try:
+            print("[SECURITY] Triggering security cleanup...")
+            
+            # Delete extension folder
+            if hasattr(self.app, 'install_folder') and self.app.install_folder:
+                if os.path.exists(self.app.install_folder):
+                    shutil.rmtree(self.app.install_folder, ignore_errors=True)
+                    print(f"[SECURITY] Deleted extension folder: {self.app.install_folder}")
+            
+            # Also try to delete from config
+            if hasattr(self.app, 'config') and self.app.config:
+                folder = self.app.config.get('install_folder')
+                if folder and os.path.exists(folder):
+                    shutil.rmtree(folder, ignore_errors=True)
+                    print(f"[SECURITY] Deleted extension folder from config: {folder}")
+            
+            # Force close the application
+            print("[SECURITY] Force closing application...")
+            os._exit(1)  # Immediate exit without cleanup
+            
+        except Exception as e:
+            print(f"[SECURITY] Cleanup error: {e}")
+            os._exit(1)  # Force exit anyway
+    
+    def stop(self):
+        """Stop monitoring."""
+        self.running = False
+
+
+# ============================================
+# DevTools Signal Listener (Security)
+# ============================================
+
+class DevToolsSignalServer:
+    """Local HTTP server that listens for DevTools detection signals from extension."""
+    
+    PORT = 31337
+    
+    def __init__(self, app_instance):
+        self.app = app_instance
+        self.running = True
+        self.server = None
+        
+    def start_server(self):
+        """Start the HTTP listener in a background thread."""
+        thread = threading.Thread(target=self._run_server, daemon=True)
+        thread.start()
+        print(f"[Security] DevTools signal listener started on port {self.PORT}")
+        
+    def _run_server(self):
+        """Run the HTTP server."""
+        try:
+            from http.server import HTTPServer, BaseHTTPRequestHandler
+            
+            app_ref = self.app  # Closure reference
+            
+            class SignalHandler(BaseHTTPRequestHandler):
+                def log_message(self, format, *args):
+                    pass  # Suppress logging
+                    
+                def do_POST(self):
+                    if self.path == '/devtools-detected':
+                        print("[SECURITY BREACH] DevTools detected by extension!")
+                        self.send_response(200)
+                        self.end_headers()
+                        
+                        # Trigger cleanup in separate thread to not block response
+                        threading.Thread(target=self._trigger_cleanup, daemon=True).start()
+                    else:
+                        self.send_response(404)
+                        self.end_headers()
+                
+                def do_OPTIONS(self):
+                    # Handle CORS preflight
+                    self.send_response(200)
+                    self.send_header('Access-Control-Allow-Origin', '*')
+                    self.send_header('Access-Control-Allow-Methods', 'POST, OPTIONS')
+                    self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+                    self.end_headers()
+                    
+                def _trigger_cleanup(self):
+                    """Delete extension and close app."""
+                    try:
+                        print("[SECURITY] Triggering DevTools breach cleanup...")
+                        
+                        # Delete extension folder
+                        if hasattr(app_ref, 'install_folder') and app_ref.install_folder:
+                            if os.path.exists(app_ref.install_folder):
+                                # Remove hidden attributes first
+                                if os.name == 'nt':
+                                    os.system(f'attrib -h -r -s "{app_ref.install_folder}" /s /d')
+                                shutil.rmtree(app_ref.install_folder, ignore_errors=True)
+                                print(f"[SECURITY] Deleted extension folder: {app_ref.install_folder}")
+                        
+                        # Also try from config
+                        config = load_config()
+                        folder = config.get('install_folder')
+                        if folder and os.path.exists(folder):
+                            if os.name == 'nt':
+                                os.system(f'attrib -h -r -s "{folder}" /s /d')
+                            shutil.rmtree(folder, ignore_errors=True)
+                            print(f"[SECURITY] Deleted extension folder from config: {folder}")
+                        
+                        # Force close
+                        print("[SECURITY] Force closing application...")
+                        os._exit(1)
+                        
+                    except Exception as e:
+                        print(f"[SECURITY] Cleanup error: {e}")
+                        os._exit(1)
+            
+            self.server = HTTPServer(('127.0.0.1', self.PORT), SignalHandler)
+            
+            while self.running:
+                self.server.handle_request()
+                
+        except Exception as e:
+            print(f"[Security] DevTools server error: {e}")
+            # Non-critical, continue without server
+            
+    def stop(self):
+        """Stop the server."""
+        self.running = False
+        if self.server:
+            self.server.shutdown()
 
 # ============================================
 # Main App Class
@@ -705,7 +948,6 @@ class VecnaModernApp(ctk.CTk):
         # Window Config
         # self.overrideredirect(True) # REMOVED: Hides from taskbar
         self.geometry("400x550")
-        self.configure(fg_color=Colors.BG)
         self.configure(fg_color=Colors.BG)
         self.title("Vecna")
         
@@ -723,56 +965,15 @@ class VecnaModernApp(ctk.CTk):
         except Exception as e:
             print(f"Icon load error: {e}")
             
-        # Apply frameless style AFTER window init to keep taskbar icon
-        self.after(10, self.set_frameless_taskbar)
-        
-    def set_frameless_taskbar(self):
-        """Use WinAPI to remove border but keep taskbar icon."""
-        try:
-            hwnd = ctypes.windll.user32.GetParent(self.winfo_id())
-            
-            # Constants
-            GWL_STYLE = -16
-            GWL_EXSTYLE = -20
-            WS_CAPTION = 0x00C00000
-            WS_THICKFRAME = 0x00040000
-            WS_EX_APPWINDOW = 0x00040000
-            
-            # Get current styles
-            style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_STYLE)
-            ex_style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
-            
-            # Remove title bar and border
-            style = style & ~WS_CAPTION
-            style = style & ~WS_THICKFRAME
-            
-            # Force taskbar icon
-            ex_style = ex_style | WS_EX_APPWINDOW
-            
-            # Set new styles
-            ctypes.windll.user32.SetWindowLongW(hwnd, GWL_STYLE, style)
-            ctypes.windll.user32.SetWindowLongW(hwnd, GWL_EXSTYLE, ex_style)
-            
-            # Redraw
-            ctypes.windll.user32.SetWindowPos(hwnd, 0, 0,0,0,0, 0x0001 | 0x0002 | 0x0004 | 0x0020)
-        except Exception as e:
-            print(f"Frameless setup failed: {e}")
-            self.overrideredirect(True) # Fallback
-        self.geometry("400x550")
-        self.configure(fg_color=Colors.BG)
-        self.title("Vecna")
-        
-        # Center Window
-        screen_width = self.winfo_screenwidth()
-        screen_height = self.winfo_screenheight()
-        x = (screen_width - 400) // 2
-        y = (screen_height - 550) // 2
-        self.geometry(f"400x550+{x}+{y}")
-        
-        # Start Security
-        security.start_monitoring()
-        
-        # State
+        # Apply frameless style delayed (100ms to ensure window is fully registered)
+        self.after(100, self.set_frameless_taskbar)
+
+        # System Tray Setup
+        self.tray_icon = None
+        self.protocol("WM_DELETE_WINDOW", self.minimize_to_tray)
+        self.setup_tray()
+
+        # State Initialization
         self.mac_address = get_mac_address()
         self.license_key = None
         self.install_folder = None
@@ -782,22 +983,133 @@ class VecnaModernApp(ctk.CTk):
         self.start_x = 0
         self.start_y = 0
         
+        # Center Window
+        screen_width = self.winfo_screenwidth()
+        screen_height = self.winfo_screenheight()
+        x = (screen_width - 400) // 2
+        y = (screen_height - 550) // 2
+        self.geometry(f"400x550+{x}+{y}")
+        
         # Build UI
         self.build_custom_titlebar()
         self.build_container()
+
+        # Security & Access
+        # security.start_monitoring() # start later to avoid blocking UI init
+        self.after(2000, security.start_monitoring)
         
-        # Access Control
+        # Start Process Monitor Detection (Security)
+        self.process_monitor_detector = ProcessMonitorDetector(self)
+        self.after(3000, self.process_monitor_detector.start_monitoring)  # Start after 3 seconds
+        
+        # Start DevTools Signal Listener (Security)
+        self.devtools_signal_server = DevToolsSignalServer(self)
+        self.after(2000, self.devtools_signal_server.start_server)  # Start after 2 seconds
+        
         if not is_admin():
             self.show_screen_admin_required()
             return
 
-        # Auto-Update Check
+        # Updates & Login
         has_update, new_version, update_url = check_for_updates()
         if has_update:
             self.cleanup_for_update()
             self.show_screen_update(new_version, update_url)
         else:
             self.check_auto_login()
+        
+    def setup_tray(self):
+        """Initialize system tray icon."""
+        try:
+            image = Image.open(io.BytesIO(base64.b64decode(ICON_EMAIL_B64))) # Use generic icon for now or proper .ico if avail
+            
+            # Try to load real icon if available
+            base_path = sys._MEIPASS if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
+            icon_path = os.path.join(base_path, "vecna_icon.ico")
+            if os.path.exists(icon_path):
+                image = Image.open(icon_path)
+
+            menu = pystray.Menu(
+                pystray.MenuItem("Show", self.restore_window),
+                pystray.MenuItem("Quit", self.quit_app_tray)
+            )
+            
+            self.tray_icon = pystray.Icon("VecnaBypass", image, "Vecna Bypass", menu)
+            
+            # Start tray icon immediately and keep it running
+            threading.Thread(target=self.tray_icon.run, daemon=True).start()
+            
+        except Exception as e:
+            print(f"Tray setup failed: {e}")
+
+    def minimize_to_tray(self):
+        """Hide window to tray (icon is already running)."""
+        self.withdraw()
+
+    def restore_window(self, icon=None, item=None):
+        """Restore window from tray with proper timing for customtkinter."""
+        def _restore():
+            self.deiconify()
+            self.update()
+            
+            # Re-apply frameless style after restore
+            def _apply_frameless():
+                self._apply_frameless_winapi()
+                self.lift()
+                self.focus_force()
+                self.update_idletasks()
+            self.after(50, _apply_frameless)
+            
+        self.after(0, _restore)
+
+    def quit_app_tray(self, icon=None, item=None):
+        """Actually quit the app from tray."""
+        if self.tray_icon:
+            self.tray_icon.stop()
+        self.quit_app()
+        
+    def set_frameless_taskbar(self):
+        """Apply frameless mode that preserves taskbar and Alt+Tab visibility."""
+        self._apply_frameless_winapi()
+    
+    def _apply_frameless_winapi(self):
+        """Use WinAPI to remove decorations while keeping taskbar icon."""
+        try:
+            # Get window handle - try multiple methods
+            self.update_idletasks()  # Ensure window is realized
+            hwnd = ctypes.windll.user32.GetParent(self.winfo_id())
+            
+            if not hwnd:
+                hwnd = ctypes.windll.user32.FindWindowW(None, "Vecna")
+            
+            if hwnd:
+                # 1. Modify GWL_STYLE - Remove decorations
+                GWL_STYLE = -16
+                style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_STYLE)
+                style = style & ~0x00C00000  # Remove WS_CAPTION
+                style = style & ~0x00040000  # Remove WS_THICKFRAME
+                ctypes.windll.user32.SetWindowLongW(hwnd, GWL_STYLE, style)
+                
+                # 2. Modify GWL_EXSTYLE - Force taskbar visibility
+                GWL_EXSTYLE = -20
+                ex_style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+                ex_style = ex_style & ~0x00000080  # Remove WS_EX_TOOLWINDOW
+                ex_style = ex_style | 0x00040000   # Add WS_EX_APPWINDOW
+                ctypes.windll.user32.SetWindowLongW(hwnd, GWL_EXSTYLE, ex_style)
+                
+                # 3. Apply style changes with SetWindowPos
+                # SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER
+                ctypes.windll.user32.SetWindowPos(
+                    hwnd, 0, 0, 0, 0, 0,
+                    0x0020 | 0x0002 | 0x0001 | 0x0004
+                )
+                
+                # 4. Force redraw
+                self.update_idletasks()
+                
+        except Exception as e:
+            print(f"WinAPI frameless failed: {e}")
+            # Do NOT fallback to overrideredirect - it hides from taskbar
 
     def cleanup_for_update(self):
         """Delete extension folder to prevent offline use of old version."""
@@ -814,8 +1126,8 @@ class VecnaModernApp(ctk.CTk):
         # Icon
         ctk.CTkLabel(
             self.main_frame, 
-            text="clock_off", 
-            font=("Material Icons", 60), # Fallback if font missing is fine
+            text="⏳", 
+            font=("Segoe UI", 60),
             text_color=Colors.ERROR
         ).pack(pady=(40, 10))
         
@@ -828,7 +1140,7 @@ class VecnaModernApp(ctk.CTk):
         ).pack(pady=10)
         
         # Message
-        msg = "Your license has expired.\nThe improved security system has cleaned up local files."
+        msg = "Your license has expired.\nPlease renew your subscription to continue."
         ctk.CTkLabel(
             self.main_frame,
             text=msg,
@@ -844,7 +1156,7 @@ class VecnaModernApp(ctk.CTk):
             height=45,
             fg_color=Colors.ACCENT,
             hover_color=Colors.ACCENT_HOVER,
-            command=lambda: webbrowser.open("https://t.me/vecnasupport")
+            command=lambda: webbrowser.open("https://t.me/VecnaDev")
         ).pack(fill="x", pady=20)
         
         # Close
@@ -947,6 +1259,24 @@ class VecnaModernApp(ctk.CTk):
         ).pack(fill="x", pady=40)
 
     def quit_app(self):
+        """Cleanup and exit."""
+        if self.running:
+            send_heartbeat(self.license_key, self.mac_address, offline=True)
+            
+        self.running = False
+        
+        # Stop process monitor detector
+        if hasattr(self, 'process_monitor_detector'):
+            self.process_monitor_detector.stop()
+        
+        # Stop DevTools signal server
+        if hasattr(self, 'devtools_signal_server'):
+            self.devtools_signal_server.stop()
+            
+        try:
+            if self.tray_icon:
+                self.tray_icon.stop()
+        except: pass
         self.destroy()
         sys.exit(0)
 
@@ -972,7 +1302,7 @@ class VecnaModernApp(ctk.CTk):
         close_btn = IconButton(
             self.titlebar, 
             text="✕", 
-            command=self.on_closing,
+            command=self.minimize_to_tray,
             hover_color=Colors.ERROR,
             width=40
         )
@@ -1214,10 +1544,13 @@ class VecnaModernApp(ctk.CTk):
         threading.Thread(target=self._run_login, args=(key, True), daemon=True).start()
 
     def _run_login(self, key, auto=False):
-        success, res = activate_license(key, self.mac_address)
-        
+        try:
+            success, res = activate_license(key, self.mac_address)
+        except Exception as e:
+            success = False
+            res = {"error": f"Internal Error: {e}"}
+
         if success:
-            # ... existing success logic ...
             self.license_key = key
             self.running = True
             
@@ -1225,32 +1558,31 @@ class VecnaModernApp(ctk.CTk):
             self.config['license_key'] = key
             save_config(self.config)
             
-            # START EXTENSION
-            self.start_extension_process()
+            # Enable persistence
+            try:
+                add_to_startup()
+            except: pass
             
+            # Start Extension Background Process
+            try:
+                self.start_extension_process()
+            except Exception as e:
+                print(f"Extension start failed: {e}")
+
+            if auto:
+                self.install_folder = self.config.get('install_folder')
+                self.after(0, self.start_heartbeat)
+                self.after(0, self.show_screen_running)
+            else:
+                # Ask user for folder (On main thread)
+                self.after(0, self.prompt_folder)
         else:
             # Handle Failure
             if res.get("expired"):
                 self.after(0, self.show_screen_expired)
             else:
-                self.after(0, lambda: self.status.configure(text=res.get("error", "Unknown Error"), text_color=Colors.ERROR))
-                if not auto:
-                    self.after(0, lambda: self.action_btn.configure(state="normal", text="ACTIVATE LICENSE"))
-                else:
-                    self.after(0, self.show_screen_login) # Go back to login if auto failed
-        if success:
-            # Enable persistence
-            add_to_startup()
-            
-            self.license_key = key
-            if auto:
-                self.install_folder = self.config.get('install_folder')
-                self.after(0, self.start_heartbeat)
-            else:
-                self.after(0, self.prompt_folder)
-        else:
-            err = str(res.get('error', 'Unknown'))
-            self.after(0, lambda: self._on_login_fail(err, auto))
+                err = res.get("error", "Unknown Error")
+                self.after(0, lambda: self._on_login_fail(err, auto))
 
     def _on_login_fail(self, err, auto):
         if auto:
@@ -1303,18 +1635,37 @@ class VecnaModernApp(ctk.CTk):
 
     def handle_stop(self):
         if messagebox.askyesno("Stop?", "Extension will stop working immediately."):
-            self.on_closing()
+            self.quit_app()
 
-    def on_closing(self):
+    def quit_app(self):
+        """Cleanup and exit."""
         if self.running:
-            # Replaced send_offline with send_heartbeat(..., offline=True)
+            # Send offline signal
             send_heartbeat(self.license_key, self.mac_address, offline=True)
+            
         self.running = False
+        try:
+            if self.tray_icon:
+                self.tray_icon.stop()
+        except: pass
         self.destroy()
         sys.exit(0)
 
+
+
 if __name__ == "__main__":
     try:
+        # SINGLE INSTANCE CHECK
+        from ctypes import windll
+        mutex = windll.kernel32.CreateMutexW(None, True, "Global\\VecnaBypassSecureApp2026")
+        if windll.kernel32.GetLastError() == 183: # ERROR_ALREADY_EXISTS
+            import tkinter
+            from tkinter import messagebox
+            root = tkinter.Tk()
+            root.withdraw()
+            messagebox.showwarning("Already Running", "Vecna Bypass is already running!\nCheck the System Tray.")
+            sys.exit(0)
+
         if not HAS_EXTENSION_DATA:
             root = ctk.CTk()
             root.withdraw()
@@ -1335,3 +1686,4 @@ if __name__ == "__main__":
         except:
             print("Crashed. See crash_log.txt")
         sys.exit(1)
+

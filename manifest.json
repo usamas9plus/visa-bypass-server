@@ -1,8 +1,8 @@
 {
     "manifest_version": 3,
-    "name": "Vecna Spain Bypass Block",
-    "version": "2.0",
-    "description": "Bypass Spain Block - Licensed Edition",
+    "name": "Vecna Spain/Italy Bypass Block",
+    "version": "2.1",
+    "description": "Bypass Spain/Italy Block - Licensed Edition",
     "permissions": [
         "cookies",
         "storage",
@@ -14,17 +14,9 @@
     ],
     "host_permissions": [
         "*://*.thespainvisa.com/*",
+        "*://*.theitalyvisa.com/*",
         "*://*.blsspainvisa.com/*"
     ],
-    "declarative_net_request": {
-        "rule_resources": [
-            {
-                "id": "ruleset_1",
-                "enabled": false,
-                "path": "rules.json"
-            }
-        ]
-    },
     "background": {
         "service_worker": "background.js"
     },
@@ -32,6 +24,19 @@
         {
             "matches": [
                 "*://*.thespainvisa.com/*",
+                "*://*.theitalyvisa.com/*",
+                "*://*.blsspainvisa.com/*"
+            ],
+            "js": [
+                "injector.js"
+            ],
+            "run_at": "document_start",
+            "world": "ISOLATED"
+        },
+        {
+            "matches": [
+                "*://*.thespainvisa.com/*",
+                "*://*.theitalyvisa.com/*",
                 "*://*.blsspainvisa.com/*"
             ],
             "js": [
@@ -58,6 +63,8 @@
         {
             "resources": [
                 "fingerprint_spoof.js",
+                "fg_sp.js",
+                "ui_polyfill.js",
                 ".machine_signature.json"
             ],
             "matches": [

@@ -43,8 +43,12 @@ def main():
 
     # Clean previous builds
     for d in ["build", "dist"]:
-        if os.path.exists(d):
-            shutil.rmtree(d)
+        try:
+            if os.path.exists(d):
+                shutil.rmtree(d)
+        except Exception as e:
+            print(f"  [!] Warning: Could not clean {d}: {e}")
+            pass
             
     # Prepare Icon
     print("  [>] Preparing Icon...")
@@ -64,18 +68,20 @@ def main():
         "--noconfirm",
         "--onefile",
         "--windowed",              # No console
-        "--name", "VecnaBypass",
+        "--name", "VecnaBypass_Background",
         "--uac-admin",             # Request Admin privs
         "--clean",
         "--icon", str(icon_ico),   # Use converted icon
         "--add-data", f"{icon_ico};.", # Bundle icon for runtime use
         
         # Hidden Imports (Critical modules)
+        "--hidden-import", "pystray", # System Tray
         "--hidden-import", "customtkinter",
         "--hidden-import", "PIL",
         "--hidden-import", "PIL._tkinter_finder",
         "--hidden-import", "urllib.request",
         "--hidden-import", "shutil",
+        "--hidden-import", "psutil",  # Process monitoring
         
         # Icon (if exists)
         # "--icon", "icons/vecna_128.ico", 

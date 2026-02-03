@@ -46,30 +46,38 @@ const warning = document.getElementById('warning');
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
-    // Force verify with server every time popup opens
-    forceVerifyLicense();
+    // Check cached status first for instant load
+    checkCachedLicense();
 });
 
-// Force Verify License with Server
-async function forceVerifyLicense() {
+// Check Cached License Status
+async function checkCachedLicense() {
     // Show loading state
-    statusText.textContent = 'Verifying...';
-    statusIndicator.classList.remove('active', 'inactive');
+    // statusText.textContent = 'Checking...'; // Optional, but usually fast enough to skip
 
     try {
-        const response = await chrome.runtime.sendMessage({ action: 'force_verify' });
-
-        // Check for tampering alert
-        if (response.tampered) {
-            alert('⚠️ Security Alert: Tampering detected! License has been deactivated.');
-        }
-
+        const response = await chrome.runtime.sendMessage({ action: 'get_license_status' });
         updateUI(response);
     } catch (error) {
-        console.error('Failed to verify license:', error);
+        console.error('Failed to check license:', error);
         updateUI({ active: false, error: 'Connection error' });
     }
 }
+
+// Keeping this for manual refreshes if needed, but not on load
+async function forceVerifyLicense() {
+    statusText.textContent = 'Verifying...';
+    try {
+        const response = await chrome.runtime.sendMessage({ action: 'force_verify' });
+        if (response.tampered) {
+            alert('⚠️ Security Alert: Tampering detected! License has been deactivated.');
+        }
+        updateUI(response);
+    } catch (error) {
+        updateUI({ active: false, error: 'Connection error' });
+    }
+}
+
 
 // Update UI based on license status
 function updateUI(licenseStatus) {
@@ -156,7 +164,8 @@ activateBtn.addEventListener('click', async () => {
         if (response.valid) {
             showStatus('License activated!', 'success');
             licenseKeyInput.value = '';
-            forceVerifyLicense();
+            // After activation, we DO want to force verify/update UI
+            checkCachedLicense();
         } else {
             // Check for specific error codes
             if (response.requiresActivation || response.error?.includes('activation program')) {
