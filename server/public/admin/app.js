@@ -141,7 +141,7 @@ function renderKeys(keys) {
         const killClass = key.killSwitch ? 'kill-active' : '';
 
         // Online Status
-        const isOnline = key.isOnline && (Date.now() - (key.lastHeartbeat || 0) < 5 * 60 * 1000);
+        const isOnline = key.isOnline && (Date.now() - (key.lastHeartbeat || 0) < 15 * 60 * 1000);
         const onlineHtml = isOnline
             ? '<span style="color: #2ecc71; font-size: 1.2em;" title="Online">●</span>'
             : '<span style="color: #444; font-size: 1.2em;" title="Offline">●</span>';

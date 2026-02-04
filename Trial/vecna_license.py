@@ -48,7 +48,7 @@ API_SETTINGS = "https://visa-bypass-server.vercel.app/api/settings"
 APP_VERSION = "1.0.0"
 SIGN_SECRET = "vecna-sign-key"
 ENCRYPTION_KEY = "vecna-extension-secret-key-2024"
-HEARTBEAT_INTERVAL = 30
+HEARTBEAT_INTERVAL = 600
 # Config path in AppData to ensure it's writable
 if os.name == 'nt':
     app_data = os.getenv('APPDATA')

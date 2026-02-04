@@ -93,12 +93,22 @@
                 <form id="settings-form" class="create-form">
                     <div class="form-row">
                         <div class="input-group">
-                            <label for="latest-version">Latest Version</label>
-                            <input type="text" id="latest-version" placeholder="e.g. 1.0.0">
+                            <label for="latest-version">Latest Version (Prod)</label>
+                            <input type="text" id="latest-version" placeholder="e.g. 1.0.2">
                         </div>
                         <div class="input-group" style="flex: 2;">
-                            <label for="update-url">Update URL</label>
+                            <label for="update-url">Update URL (Prod)</label>
                             <input type="text" id="update-url" placeholder="https://example.com/update.zip">
+                        </div>
+                    </div>
+                    <div class="form-row" style="margin-top: 15px;">
+                        <div class="input-group">
+                            <label for="latest-version-trial">Latest Version (Trial)</label>
+                            <input type="text" id="latest-version-trial" placeholder="e.g. 1.0.0">
+                        </div>
+                        <div class="input-group" style="flex: 2;">
+                            <label for="update-url-trial">Update URL (Trial)</label>
+                            <input type="text" id="update-url-trial" placeholder="https://example.com/trial.zip">
                         </div>
                         <button type="submit" class="btn btn-secondary">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"

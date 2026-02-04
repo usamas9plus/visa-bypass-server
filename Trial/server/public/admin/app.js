@@ -21,6 +21,8 @@ const toast = document.getElementById('toast');
 const settingsForm = document.getElementById('settings-form');
 const inputLatestVersion = document.getElementById('latest-version');
 const inputUpdateUrl = document.getElementById('update-url');
+const inputLatestVersionTrial = document.getElementById('latest-version-trial');
+const inputUpdateUrlTrial = document.getElementById('update-url-trial');
 
 // Stats
 const statTotal = document.getElementById('stat-total');
@@ -113,18 +115,41 @@ async function loadKeys() {
 }
 
 // Render Keys Table
+// Helper to format relative time
+function formatRelativeTime(timestamp) {
+    if (!timestamp) return '-';
+    const now = Date.now();
+    const diff = now - timestamp;
+
+    if (diff < 60000) return 'Just now';
+    if (diff < 3600000) return Math.floor(diff / 60000) + 'm ago';
+    if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago';
+    return Math.floor(diff / 86400000) + 'd ago';
+}
+
+// Render Keys Table
 function renderKeys(keys) {
     if (!keys || keys.length === 0) {
-        keysTbody.innerHTML = '<tr class="loading-row"><td colspan="7">No keys found. Create your first key above!</td></tr>';
+        keysTbody.innerHTML = '<tr class="loading-row"><td colspan="10">No keys found. Create your first key above!</td></tr>';
         return;
     }
 
     keysTbody.innerHTML = keys.map(key => {
         const expiresDate = new Date(key.expiresAt).toLocaleDateString();
-        const deviceDisplay = key.deviceId ? key.deviceId.substring(0, 12) + '...' : 'Not activated';
+        const deviceDisplay = key.deviceId ? key.deviceId.substring(0, 8) + '...' : '<span class="text-muted">-</span>';
         const deviceClass = key.deviceId ? 'bound' : '';
         const killChecked = key.killSwitch ? 'checked' : '';
         const killClass = key.killSwitch ? 'kill-active' : '';
+
+        // Online Status
+        const isOnline = key.isOnline && (Date.now() - (key.lastHeartbeat || 0) < 15 * 60 * 1000);
+        const onlineHtml = isOnline
+            ? '<span style="color: #2ecc71; font-size: 1.2em;" title="Online">●</span>'
+            : '<span style="color: #444; font-size: 1.2em;" title="Offline">●</span>';
+
+        // MAC & Last Seen
+        const macHtml = key.macAddress ? `<code style="font-size: 0.9em;">${key.macAddress}</code>` : '<span class="text-muted">-</span>';
+        const lastSeenHtml = key.lastHeartbeat ? formatRelativeTime(key.lastHeartbeat) : '<span class="text-muted">-</span>';
 
         return `
             <tr class="${killClass}">
@@ -141,7 +166,9 @@ function renderKeys(keys) {
                 </td>
                 <td>${key.label || '—'}</td>
                 <td><span class="badge badge-${key.status}">${key.status}</span></td>
+                <td style="text-align: center;">${onlineHtml}</td>
                 <td><span class="device-cell ${deviceClass}" title="${key.deviceId || ''}">${deviceDisplay}</span></td>
+                <td>${macHtml}</td>
                 <td>
                     <label class="switch" title="Toggle Remote Kill">
                         <input type="checkbox" ${killChecked} onchange="toggleKill('${key.key}', this.checked)">
@@ -149,10 +176,11 @@ function renderKeys(keys) {
                     </label>
                 </td>
                 <td>${expiresDate}</td>
+                <td style="font-size: 0.85em; color: #888;">${lastSeenHtml}</td>
                 <td>
                     <div class="actions-cell">
-                        ${key.deviceId ? `<button class="btn btn-ghost btn-sm" onclick="resetDevice('${key.key}')">Reset Device</button>` : ''}
-                        ${key.status !== 'revoked' ? `<button class="btn btn-danger btn-sm" onclick="revokeKey('${key.key}')">Revoke</button>` : ''}
+                        ${key.deviceId ? `<button class="btn btn-ghost btn-sm" onclick="resetDevice('${key.key}')" title="Reset Device"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"></path><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg></button>` : ''}
+                        ${key.status !== 'revoked' ? `<button class="btn btn-danger btn-sm" onclick="revokeKey('${key.key}')" title="Revoke"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg></button>` : ''}
                     </div>
                 </td>
             </tr>
@@ -210,6 +238,8 @@ async function loadSettings() {
             const data = await response.json();
             inputLatestVersion.value = data.latestVersion || '';
             inputUpdateUrl.value = data.updateUrl || '';
+            inputLatestVersionTrial.value = data.latestVersion_trial || '';
+            inputUpdateUrlTrial.value = data.updateUrl_trial || '';
         }
     } catch (error) {
         console.error('Failed to load settings', error);
@@ -229,7 +259,9 @@ settingsForm.addEventListener('submit', async (e) => {
             },
             body: JSON.stringify({
                 latestVersion: inputLatestVersion.value,
-                updateUrl: inputUpdateUrl.value
+                updateUrl: inputUpdateUrl.value,
+                latestVersion_trial: inputLatestVersionTrial.value,
+                updateUrl_trial: inputUpdateUrlTrial.value
             })
         });
 

@@ -20,7 +20,7 @@ from datetime import datetime
 # Server configuration
 API_BASE = "https://visa-bypass-server.vercel.app/api/keys"
 SIGN_SECRET = "vecna-sign-key"
-HEARTBEAT_INTERVAL = 30  # seconds
+HEARTBEAT_INTERVAL = 600  # seconds
 
 # Global state
 running = True
