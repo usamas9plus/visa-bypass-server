@@ -57,12 +57,16 @@ module.exports = async function handler(req, res) {
                     label: keyData.label || '',
                     status: status,
                     deviceId: keyData.deviceId || null,
+                    macAddress: keyData.macAddress || null,
+                    lastHeartbeat: keyData.lastHeartbeat ? parseInt(keyData.lastHeartbeat) : null,
+                    isOnline: keyData.isOnline === 'true',
                     createdAt: parseInt(keyData.createdAt),
                     expiresAt: expiresAt,
                     expiresInDays: parseInt(keyData.expiresInDays),
                     killSwitch: String(keyData.killSwitch) === 'true',
                     activatedAt: keyData.activatedAt ? parseInt(keyData.activatedAt) : null,
-                    lastUsed: keyData.lastUsed ? parseInt(keyData.lastUsed) : null
+                    lastUsed: keyData.lastUsed ? parseInt(keyData.lastUsed) : null,
+                    lastMacCheck: keyData.lastMacCheck ? parseInt(keyData.lastMacCheck) : null
                 });
             }
         }
