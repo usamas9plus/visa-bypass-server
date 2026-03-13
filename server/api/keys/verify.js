@@ -13,7 +13,7 @@ const SIGN_SECRET = 'vecna-sign-key';
 
 // Heartbeat must be within this many milliseconds to be considered "online"
 // Heartbeat must be within this many milliseconds to be considered "online"
-const HEARTBEAT_TIMEOUT = 900000; // 15 minutes (900 seconds)
+const HEARTBEAT_TIMEOUT = 300000; // 5 minutes (300 seconds)
 
 module.exports = async function handler(req, res) {
     // Handle CORS preflight
@@ -98,13 +98,31 @@ module.exports = async function handler(req, res) {
         // ============================================
 
         // ============================================
-        // DEVICE FINGERPRINT CHECK (Prioritize this error)
+        // DEVICE FINGERPRINT CHECK (Multi-device support)
         // ============================================
-        if (keyData.deviceId && keyData.deviceId !== deviceId) {
-            return res.status(409).json({
-                error: 'License is already activated on another browser/device',
-                code: 'DEVICE_MISMATCH'
-            });
+        const deviceRestrictionDisabled = String(keyData.disableDeviceRestriction) === 'true';
+        const maxDevices = parseInt(keyData.maxDevices) || 1;
+        const deviceIds = keyData.deviceIds ? keyData.deviceIds.split(',') : (keyData.deviceId ? [keyData.deviceId] : []);
+
+        if (!deviceRestrictionDisabled) {
+            // Check if current device is already authorized
+            if (!deviceIds.includes(deviceId)) {
+                // Not authorized. Check if we can add a new device
+                if (deviceIds.length >= maxDevices) {
+                    return res.status(409).json({
+                        error: `License limit reached (${maxDevices} device${maxDevices > 1 ? 's' : ''}).`,
+                        code: 'DEVICE_MISMATCH'
+                    });
+                }
+
+                // Authorized: add to the list
+                deviceIds.push(deviceId);
+                await redis.hset(`key:${key}`, {
+                    deviceIds: deviceIds.join(','),
+                    // Backwards compatibility for old list view/logic if needed
+                    deviceId: deviceIds[0] 
+                });
+            }
         }
 
         const lastHeartbeat = parseInt(keyData.lastHeartbeat) || 0;
@@ -120,13 +138,14 @@ module.exports = async function handler(req, res) {
 
 
 
-        // If no device bound yet, bind this device
-        if (!keyData.deviceId) {
+        // Initial device binding handled above in multi-device logic
+        if (!keyData.deviceId && deviceIds.length > 0) {
+            // Migration for keys that had neither deviceId nor deviceIds
             await redis.hset(`key:${key}`, {
-                deviceId: deviceId,
+                deviceId: deviceIds[0],
                 deviceActivatedAt: Date.now().toString()
             });
-            keyData.deviceId = deviceId;
+            keyData.deviceId = deviceIds[0];
         }
 
         // Update last used

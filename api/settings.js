@@ -27,11 +27,13 @@ module.exports = async function handler(req, res) {
                 return res.status(401).json({ error: 'Unauthorized' });
             }
 
-            const { latestVersion, updateUrl } = req.body;
+            const { latestVersion, updateUrl, latestVersion_trial, updateUrl_trial } = req.body;
 
             await redis.hset('vecna:settings', {
                 latestVersion: latestVersion || '1.0.0',
-                updateUrl: updateUrl || ''
+                updateUrl: updateUrl || '',
+                latestVersion_trial: latestVersion_trial || '1.0.0',
+                updateUrl_trial: updateUrl_trial || ''
             });
 
             return res.status(200).json({ success: true });

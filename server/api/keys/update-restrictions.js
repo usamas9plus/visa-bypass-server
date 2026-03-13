@@ -23,32 +23,26 @@ module.exports = async function handler(req, res) {
     }
 
     try {
-        const { key } = req.body;
+        const { key, maxDevices, disableDeviceRestriction } = req.body;
 
         if (!key) {
             return res.status(400).json({ error: 'Missing key' });
         }
 
-        // Check if key exists
-        const keyData = await redis.hgetall(`key:${key}`);
-        if (!keyData || !keyData.key) {
-            return res.status(404).json({ error: 'Key not found' });
+        const updateData = {};
+        if (maxDevices !== undefined) updateData.maxDevices = String(maxDevices);
+        if (disableDeviceRestriction !== undefined) updateData.disableDeviceRestriction = String(disableDeviceRestriction);
+
+        if (Object.keys(updateData).length === 0) {
+            return res.status(400).json({ error: 'No update data provided' });
         }
 
-        // Clear device binding
-        await redis.hset(`key:${key}`, {
-            deviceId: '',
-            deviceIds: '',
-            activatedAt: ''
-        });
+        await redis.hset(`key:${key}`, updateData);
 
-        return res.status(200).json({
-            success: true,
-            message: 'Device binding reset successfully'
-        });
+        return res.status(200).json({ success: true });
 
     } catch (error) {
-        console.error('Reset device error:', error);
+        console.error('Update restrictions error:', error);
         return res.status(500).json({ error: 'Server error' });
     }
 };
