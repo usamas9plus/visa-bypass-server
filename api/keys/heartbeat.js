@@ -55,12 +55,17 @@ module.exports = async function handler(req, res) {
             return res.status(404).json({ error: 'Invalid license key', code: 'KEY_NOT_FOUND' });
         }
 
-        // Verify MAC address matches
-        if (keyData.macAddress && keyData.macAddress !== macAddress) {
-            return res.status(403).json({
-                error: 'MAC address mismatch',
-                code: 'MAC_MISMATCH'
-            });
+        // Verify MAC address matches (Multi-device support)
+        const deviceRestrictionDisabled = String(keyData.disableDeviceRestriction) === 'true';
+        const macAddresses = keyData.macAddresses ? keyData.macAddresses.split(',') : (keyData.macAddress ? [keyData.macAddress] : []);
+        
+        if (!deviceRestrictionDisabled) {
+            if (!macAddresses.includes(macAddress)) {
+                return res.status(403).json({
+                    error: 'MAC address mismatch or unauthorized device.',
+                    code: 'MAC_MISMATCH'
+                });
+            }
         }
 
         // Update heartbeat timestamp (or set offline)

@@ -39,7 +39,13 @@ module.exports = async function handler(req, res) {
         await redis.hset(`key:${key}`, {
             deviceId: '',
             deviceIds: '',
-            activatedAt: ''
+            macAddress: '',
+            macAddresses: '',
+            activatedAt: '',
+            macActivatedAt: '',
+            deviceActivatedAt: '',
+            isOnline: 'false',
+            lastHeartbeat: '0'
         });
 
         return res.status(200).json({

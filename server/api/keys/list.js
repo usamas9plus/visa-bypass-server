@@ -64,6 +64,7 @@ module.exports = async function handler(req, res) {
                     maxDevices: parseInt(keyData.maxDevices) || 1,
                     disableDeviceRestriction: String(keyData.disableDeviceRestriction) === 'true',
                     deviceIds: keyData.deviceIds ? keyData.deviceIds.split(',') : (keyData.deviceId ? [keyData.deviceId] : []),
+                    macAddresses: keyData.macAddresses ? keyData.macAddresses.split(',') : (keyData.macAddress ? [keyData.macAddress] : []),
                     activatedAt: keyData.activatedAt ? parseInt(keyData.activatedAt) : null,
                     lastUsed: keyData.lastUsed ? parseInt(keyData.lastUsed) : null
                 });

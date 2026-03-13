@@ -76,21 +76,41 @@ module.exports = async function handler(req, res) {
             return res.status(403).json({ error: 'License key has expired', code: 'KEY_EXPIRED' });
         }
 
-        // Check MAC address lock
-        if (keyData.macAddress && keyData.macAddress !== macAddress) {
-            return res.status(409).json({
-                error: 'License is already bound to a different computer',
-                code: 'MAC_MISMATCH'
-            });
-        }
+        // ============================================
+        // MAC ADDRESS CHECK (Multi-device support)
+        // ============================================
+        const deviceRestrictionDisabled = String(keyData.disableDeviceRestriction) === 'true';
+        const maxDevices = parseInt(keyData.maxDevices) || 1;
+        const macAddresses = keyData.macAddresses ? keyData.macAddresses.split(',') : (keyData.macAddress ? [keyData.macAddress] : []);
 
-        // If no MAC bound yet, bind this MAC (unless checkOnly)
-        if (!keyData.macAddress && !checkOnly) {
-            await redis.hset(`key:${key}`, {
-                macAddress: macAddress,
-                macActivatedAt: Date.now().toString()
-            });
-            keyData.macAddress = macAddress;
+        if (!deviceRestrictionDisabled) {
+            // Check if current MAC is already authorized
+            if (!macAddresses.includes(macAddress)) {
+                // Not authorized. Check if we can add a new device
+                if (macAddresses.length >= maxDevices) {
+                    return res.status(409).json({
+                        error: `License limit reached (${maxDevices} computer${maxDevices > 1 ? 's' : ''}).`,
+                        code: 'MAC_MISMATCH'
+                    });
+                }
+
+                // Authorized: add to the list
+                macAddresses.push(macAddress);
+                await redis.hset(`key:${key}`, {
+                    macAddresses: macAddresses.join(','),
+                    // Backwards compatibility
+                    macAddress: macAddresses[0],
+                    macActivatedAt: Date.now().toString()
+                });
+            }
+        } else {
+            // Restriction disabled - if first time, still set the main macAddress for compatibility
+            if (!keyData.macAddress && !checkOnly) {
+                await redis.hset(`key:${key}`, {
+                    macAddress: macAddress,
+                    macActivatedAt: Date.now().toString()
+                });
+            }
         }
 
         // Update last used
