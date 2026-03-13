@@ -54,6 +54,14 @@ module.exports = async function handler(req, res) {
             }
         }
 
+        if (key === 'DEBUG-CHECK') {
+            return res.status(418).json({ 
+                error: 'SERVER_IS_RUNNING_LATEST_CODE_V2.4',
+                debugCount: 1,
+                time: Date.now()
+            });
+        }
+
         // Lookup key in Redis
         const keyData = await redis.hgetall(`key:${key}`);
 
