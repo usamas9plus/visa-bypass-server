@@ -38,6 +38,7 @@ module.exports = async function handler(req, res) {
         // Clear device binding
         await redis.hset(`key:${key}`, {
             deviceId: '',
+            deviceIds: '',
             activatedAt: ''
         });
 

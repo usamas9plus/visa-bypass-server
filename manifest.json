@@ -9,12 +9,14 @@
         "browsingData",
         "scripting",
         "activeTab",
+        "alarms",
         "declarativeNetRequest",
         "declarativeNetRequestWithHostAccess"
     ],
     "host_permissions": [
         "*://*.thespainvisa.com/*",
-        "*://*.theitalyvisa.com/*",
+        "*://*.blsspainglobal.com/*",
+		"*://*.theitalyvisa.com/*",
         "*://*.blsspainvisa.com/*"
     ],
     "background": {
@@ -25,10 +27,12 @@
             "matches": [
                 "*://*.thespainvisa.com/*",
                 "*://*.theitalyvisa.com/*",
+				"*://*.blsspainglobal.com/*",
                 "*://*.blsspainvisa.com/*"
             ],
             "js": [
-                "injector.js"
+                "injector.js",
+                "status_bar.js"
             ],
             "run_at": "document_start",
             "world": "ISOLATED"
@@ -36,7 +40,8 @@
         {
             "matches": [
                 "*://*.thespainvisa.com/*",
-                "*://*.theitalyvisa.com/*",
+                "*://*.blsspainglobal.com/*",
+				"*://*.theitalyvisa.com/*",
                 "*://*.blsspainvisa.com/*"
             ],
             "js": [

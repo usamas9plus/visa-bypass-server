@@ -140,6 +140,11 @@ function updateUI(licenseStatus) {
 
         resetBtn.disabled = true;
         warning.style.display = 'block';
+
+        // Pre-fill remembered key if available
+        if (licenseStatus.rememberedKey && !licenseKeyInput.value) {
+            licenseKeyInput.value = licenseStatus.rememberedKey;
+        }
     }
 }
 

@@ -136,6 +136,10 @@
                             <label for="key-days">Validity (Days)</label>
                             <input type="number" id="key-days" value="30" min="1" max="365">
                         </div>
+                        <div class="input-group">
+                            <label for="key-max-devices">Max Devices</label>
+                            <input type="number" id="key-max-devices" value="1" min="1" max="100">
+                        </div>
                         <button type="submit" class="btn btn-primary">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                                 stroke-width="2">
@@ -179,13 +183,11 @@
                             <th>Key</th>
                             <th>Label</th>
                             <th>Status</th>
-                            <th>Online</th>
-                            <th>Device</th>
-                            <th>MAC</th>
-                            <th>Remote Kill</th>
+                            <th>Devices</th>
+                            <th title="Restriction Type">Restr.</th>
+                            <th>Actions</th>
                             <th>Expires</th>
                             <th>Last Seen</th>
-                            <th>Actions</th>
                         </tr>
                         </thead>
                         <tbody id="keys-tbody">

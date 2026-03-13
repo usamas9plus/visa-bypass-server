@@ -112,6 +112,21 @@ async function generateDeviceFingerprint() {
     return hashHex.substring(0, 32); // Return first 32 chars
 }
 
+// Helper: Clear session data but preserve the remembered license key
+async function clearSessionData() {
+    try {
+        const { rememberedLicenseKey } = await chrome.storage.local.get(['rememberedLicenseKey']);
+        await chrome.storage.local.clear();
+        if (rememberedLicenseKey) {
+            await chrome.storage.local.set({ rememberedLicenseKey });
+        }
+        console.log('[Storage] Session cleared, remembered key preserved');
+    } catch (e) {
+        console.error('[Storage] Failed to clear session safely:', e);
+        await chrome.storage.local.clear(); // Fallback
+    }
+}
+
 // ============================================
 // License Verification
 // ============================================
@@ -159,6 +174,8 @@ async function verifyLicense(key = null) {
             };
 
             await chrome.storage.local.set(verificationData);
+            // Persistent storage that survives logout for pre-filling
+            await chrome.storage.local.set({ rememberedLicenseKey: key });
             await enableProtection();
 
             console.log('[License] Verified successfully. Days remaining:', data.daysRemaining);
@@ -240,6 +257,7 @@ async function enableProtection() {
             addRules: rules
         });
 
+        await chrome.storage.local.set({ protectionActive: true });
         console.log('[Protection] Blocking rules ENABLED (Dynamic)');
         return true;
     } catch (error) {
@@ -253,6 +271,7 @@ async function disableProtection() {
         await chrome.declarativeNetRequest.updateDynamicRules({
             removeRuleIds: [1, 2] // Remove our specific rules
         });
+        await chrome.storage.local.set({ protectionActive: false });
         console.log('[Protection] Blocking rules DISABLED (Dynamic)');
         return true;
     } catch (error) {
@@ -304,7 +323,7 @@ async function checkLicenseOnStartup() {
     const integrityOk = await verifyChecksum();
     if (!integrityOk) {
         console.warn('[Startup] Local data integrity check failed');
-        await chrome.storage.local.clear();
+        await clearSessionData();
         await disableProtection();
         return;
     }
@@ -336,14 +355,38 @@ async function checkLicenseOnStartup() {
 }
 
 // Run on service worker startup
-chrome.runtime.onStartup.addListener(checkLicenseOnStartup);
-chrome.runtime.onInstalled.addListener(checkLicenseOnStartup);
+chrome.runtime.onStartup.addListener(() => {
+    checkLicenseOnStartup();
+    setupAlarms();
+});
+chrome.runtime.onInstalled.addListener(() => {
+    checkLicenseOnStartup();
+    setupAlarms();
+});
+
+function setupAlarms() {
+    // Heartbeat alarm every 2 minutes
+    chrome.alarms.create('heartbeat', { periodInMinutes: 2 });
+    // Full re-validation every 30 minutes
+    chrome.alarms.create('revalidate', { periodInMinutes: 30 });
+}
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name === 'heartbeat') {
+        periodicHeartbeatCheck();
+    } else if (alarm.name === 'revalidate') {
+        const stored = chrome.storage.local.get(['licenseKey']).then(s => {
+            if (s.licenseKey) verifyLicense();
+        });
+    }
+});
 
 // Also run immediately when service worker loads
 checkLicenseOnStartup();
+setupAlarms();
 
 // ============================================
-// Periodic Heartbeat Check (every 30 seconds)
+// Periodic Heartbeat Check (every 2 minutes)
 // This ensures protection is disabled when Python program stops
 // ============================================
 
@@ -359,33 +402,19 @@ async function periodicHeartbeatCheck() {
     console.log('[Heartbeat Check] Verifying with server...');
     // Use retry logic to avoid false disconnects
     const result = await verifyLicenseWithRetry(stored.licenseKey, 3);
-
     if (!result.valid) {
-        // Only disable protection if we get a definitive negative response
-        // Don't disable on simple connection errors unless they persist for retries
-
-        if (result.error === 'Connection error') {
-            console.warn('[Heartbeat Check] Connection error after retries. Keeping offline protection active for now.');
-            return;
-        }
-
         console.log('[Heartbeat Check] Verification failed:', result.error);
 
-        // Fatal errors: Clear storage
-        if (result.blocked || result.error === 'License key has expired' || result.code === 'INVALID_SIGNATURE') {
-            await chrome.storage.local.clear();
-            await disableProtection();
-        } else {
-            // For other errors (e.g. server error 500), maybe keep session briefly?
-            // For now, let's play safe and allow logout if it's not a connection error
-            await chrome.storage.local.clear();
-            await disableProtection();
-        }
+        // If heartbeat is not detected (any error), force full logout
+        console.warn('[Heartbeat Check] Heartbeat not detected. Forced logging out...');
+
+        await disableProtection();
+        await clearSessionData();
     }
 }
 
-// Run heartbeat check every 30 seconds
-setInterval(periodicHeartbeatCheck, 30000);
+// Removed setInterval calls as they are unreliable in MV3
+// Logic moved to chrome.alarms (setupAlarms)
 
 // ============================================
 // Message Handlers
@@ -432,19 +461,27 @@ chrome.storage.onChanged.addListener(async (changes, areaName) => {
     }
 });
 async function getLicenseStatus() {
-    const stored = await chrome.storage.local.get(['licenseKey', 'expiresAt', 'daysRemaining', 'verifiedAt']);
+    const stored = await chrome.storage.local.get(['licenseKey', 'expiresAt', 'daysRemaining', 'verifiedAt', 'rememberedLicenseKey']);
 
     if (!stored.licenseKey) {
-        return { active: false };
+        return { 
+            active: false, 
+            rememberedKey: stored.rememberedLicenseKey 
+        };
     }
 
     const integrityOk = await verifyChecksum();
     if (!integrityOk) {
         // TAMPERING DETECTED - Auto logout
         console.warn('[Security] Tampering detected! Auto-logout triggered.');
-        await chrome.storage.local.clear();
+        await clearSessionData();
         await disableProtection();
-        return { active: false, error: 'Tampering detected', tampered: true };
+        return { 
+            active: false, 
+            error: 'Tampering detected', 
+            tampered: true,
+            rememberedKey: stored.rememberedLicenseKey
+        };
     }
 
     const expired = stored.expiresAt && stored.expiresAt < Date.now();
@@ -453,7 +490,8 @@ async function getLicenseStatus() {
         active: !expired,
         expired: expired,
         daysRemaining: expired ? 0 : Math.ceil((stored.expiresAt - Date.now()) / (1000 * 60 * 60 * 24)),
-        key: stored.licenseKey.substring(0, 9) + '...'
+        key: stored.licenseKey.substring(0, 9) + '...',
+        rememberedKey: stored.rememberedLicenseKey
     };
 }
 
@@ -478,14 +516,14 @@ async function forceVerifyWithServer() {
         };
     } else {
         // Invalid - clear and disable
-        await chrome.storage.local.clear();
+        await clearSessionData();
         await disableProtection();
         return { active: false, error: result.error };
     }
 }
 
 async function deactivateLicense() {
-    await chrome.storage.local.clear();
+    await clearSessionData();
     await disableProtection();
     return { success: true };
 }
@@ -557,10 +595,4 @@ async function performIdentityReset(sendResponse) {
 // Periodic License Re-validation (every 30 min)
 // ============================================
 
-setInterval(async () => {
-    const stored = await chrome.storage.local.get(['licenseKey']);
-    if (stored.licenseKey) {
-        console.log('[Background] Periodic license re-validation...');
-        await verifyLicense();
-    }
-}, 30 * 60 * 1000);
+// Logic moved to chrome.alarms (setupAlarms)

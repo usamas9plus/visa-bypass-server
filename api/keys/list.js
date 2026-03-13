@@ -61,6 +61,9 @@ module.exports = async function handler(req, res) {
                     expiresAt: expiresAt,
                     expiresInDays: parseInt(keyData.expiresInDays),
                     killSwitch: String(keyData.killSwitch) === 'true',
+                    maxDevices: parseInt(keyData.maxDevices) || 1,
+                    disableDeviceRestriction: String(keyData.disableDeviceRestriction) === 'true',
+                    deviceIds: keyData.deviceIds ? keyData.deviceIds.split(',') : (keyData.deviceId ? [keyData.deviceId] : []),
                     activatedAt: keyData.activatedAt ? parseInt(keyData.activatedAt) : null,
                     lastUsed: keyData.lastUsed ? parseInt(keyData.lastUsed) : null
                 });

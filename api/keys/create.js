@@ -40,7 +40,10 @@ module.exports = async function handler(req, res) {
             deviceId: '',
             activatedAt: '',
             lastUsed: '',
-            revoked: 'false'
+            revoked: 'false',
+            maxDevices: '1',
+            disableDeviceRestriction: 'false',
+            deviceIds: ''
         });
 
         // Add to keys index
