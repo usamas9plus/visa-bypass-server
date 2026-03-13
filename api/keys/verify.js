@@ -13,7 +13,7 @@ const SIGN_SECRET = 'vecna-sign-key';
 
 // Heartbeat must be within this many milliseconds to be considered "online"
 // Heartbeat must be within this many milliseconds to be considered "online"
-const HEARTBEAT_TIMEOUT = 300000; // 5 minutes (300 seconds)
+const HEARTBEAT_TIMEOUT = 900000; // 15 minutes (900 seconds)
 
 module.exports = async function handler(req, res) {
     // Handle CORS preflight
@@ -52,14 +52,6 @@ module.exports = async function handler(req, res) {
             if (signature !== expectedSignature) {
                 return res.status(403).json({ error: 'Invalid signature', code: 'INVALID_SIGNATURE' });
             }
-        }
-
-        if (key === 'DEBUG-CHECK') {
-            return res.status(418).json({ 
-                error: 'SERVER_IS_RUNNING_LATEST_CODE_V2.4',
-                debugCount: 1,
-                time: Date.now()
-            });
         }
 
         // Lookup key in Redis
@@ -135,9 +127,8 @@ module.exports = async function handler(req, res) {
 
         const lastHeartbeat = parseInt(keyData.lastHeartbeat) || 0;
         const heartbeatAge = Date.now() - lastHeartbeat;
-        const isOnline = String(keyData.isOnline) === 'true';
 
-        if (!isOnline || heartbeatAge > HEARTBEAT_TIMEOUT) {
+        if (heartbeatAge > HEARTBEAT_TIMEOUT || keyData.isOnline === 'false') {
             return res.status(403).json({
                 error: 'License manager not running. Start the activation program.',
                 code: 'HEARTBEAT_TIMEOUT',
