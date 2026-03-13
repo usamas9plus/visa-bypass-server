@@ -127,8 +127,9 @@ module.exports = async function handler(req, res) {
 
         const lastHeartbeat = parseInt(keyData.lastHeartbeat) || 0;
         const heartbeatAge = Date.now() - lastHeartbeat;
+        const isOnline = String(keyData.isOnline) === 'true';
 
-        if (heartbeatAge > HEARTBEAT_TIMEOUT || keyData.isOnline === 'false') {
+        if (!isOnline || heartbeatAge > HEARTBEAT_TIMEOUT) {
             return res.status(403).json({
                 error: 'License manager not running. Start the activation program.',
                 code: 'HEARTBEAT_TIMEOUT',
