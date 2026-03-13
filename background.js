@@ -365,8 +365,8 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 function setupAlarms() {
-    // Heartbeat alarm every 10 minutes
-    chrome.alarms.create('heartbeat', { periodInMinutes: 10 });
+    // Heartbeat alarm every 2 minutes
+    chrome.alarms.create('heartbeat', { periodInMinutes: 2 });
     // Full re-validation every 30 minutes
     chrome.alarms.create('revalidate', { periodInMinutes: 30 });
 }
