@@ -125,12 +125,26 @@ module.exports = async function handler(req, res) {
             }
         }
 
+        // ============================================
+        // HEARTBEAT CHECK - Python program must be running
+        // ============================================
+        const { isInitial } = req.body;
         const lastHeartbeat = parseInt(keyData.lastHeartbeat) || 0;
         const heartbeatAge = Date.now() - lastHeartbeat;
 
-        if (heartbeatAge > HEARTBEAT_TIMEOUT || keyData.isOnline === 'false') {
+        // Two-tiered timeout:
+        // 1. Initial Login/Activation: Must have a heartbeat within 90 seconds (Strict)
+        // 2. Background Re-verification: Can have a heartbeat within 15 minutes (Lenient)
+        const STRICT_TIMEOUT = 90000; // 90 seconds
+        const effectiveTimeout = isInitial ? STRICT_TIMEOUT : HEARTBEAT_TIMEOUT;
+
+        if (heartbeatAge > effectiveTimeout || keyData.isOnline === 'false') {
+            const errorMsg = isInitial 
+                ? 'License manager not running. Start the activation program before logging in.'
+                : 'License manager connection lost. Start the activation program.';
+                
             return res.status(403).json({
-                error: 'License manager not running. Start the activation program.',
+                error: errorMsg,
                 code: 'HEARTBEAT_TIMEOUT',
                 requiresActivation: true
             });

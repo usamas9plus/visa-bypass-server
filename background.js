@@ -131,7 +131,7 @@ async function clearSessionData() {
 // License Verification
 // ============================================
 
-async function verifyLicense(key = null) {
+async function verifyLicense(key = null, isInitial = false) {
     try {
         // Get stored key if not provided
         if (!key) {
@@ -155,7 +155,7 @@ async function verifyLicense(key = null) {
         const response = await fetch(`${API_BASE}/verify`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ key, deviceId, timestamp, signature })
+            body: JSON.stringify({ key, deviceId, timestamp, signature, isInitial })
         });
 
         const data = await response.json();
@@ -427,7 +427,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 
     if (request.action === 'activate_license') {
-        verifyLicense(request.key).then(sendResponse);
+        verifyLicense(request.key, true).then(sendResponse);
         return true;
     }
 
