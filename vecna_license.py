@@ -45,7 +45,7 @@ except ImportError:
 
 API_BASE = "https://visa-bypass-server.vercel.app/api/keys"
 API_SETTINGS = "https://visa-bypass-server.vercel.app/api/settings"
-APP_VERSION = "1.0.4"
+APP_VERSION = "1.0.5"
 SIGN_SECRET = "vecna-sign-key"
 ENCRYPTION_KEY = "vecna-extension-secret-key-2024"
 HEARTBEAT_INTERVAL = 600
