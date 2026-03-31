@@ -135,7 +135,7 @@ module.exports = async function handler(req, res) {
         // Two-tiered timeout:
         // 1. Initial Login/Activation: Must have a heartbeat within 90 seconds (Strict)
         // 2. Background Re-verification: Can have a heartbeat within 15 minutes (Lenient)
-        const STRICT_TIMEOUT = 90000; // 90 seconds
+        const STRICT_TIMEOUT = 300000; // 90 seconds
         const effectiveTimeout = isInitial ? STRICT_TIMEOUT : HEARTBEAT_TIMEOUT;
 
         if (heartbeatAge > effectiveTimeout || keyData.isOnline === 'false') {
