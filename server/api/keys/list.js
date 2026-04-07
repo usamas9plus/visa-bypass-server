@@ -30,15 +30,34 @@ module.exports = async function handler(req, res) {
             return res.status(200).json({ keys: [], stats: { total: 0, active: 0, expired: 0, revoked: 0 } });
         }
 
+        // Fetch all key data in a SINGLE BATCH using pipeline
+        const p = redis.pipeline();
+        allKeys.forEach(key => p.hgetall(`key:${key}`));
+        const results = await p.exec();
+
         const keys = [];
         let active = 0, expired = 0, revoked = 0;
         const now = Date.now();
 
-        for (const key of allKeys) {
-            const keyData = await redis.hgetall(`key:${key}`);
-            if (keyData && keyData.key) {
-                const expiresAt = parseInt(keyData.expiresAt);
-                const isExpired = expiresAt < now;
+        // Helper for robust numeric conversion
+        const toNum = (val) => {
+            if (val === null || val === undefined || val === '') return 0;
+            const n = parseInt(val);
+            return isNaN(n) ? 0 : n;
+        };
+
+        results.forEach((keyData, index) => {
+            const rawKey = allKeys[index];
+            
+            // SECURITY DIAGNOSTIC for First 5 keys (Debug only)
+            if (index < 5) {
+                console.log(`[DIAGNOSTIC] Key: ${rawKey} Data:`, JSON.stringify(keyData));
+            }
+
+            if (keyData && (keyData.key || keyData.createdAt)) {
+                // Determine current status
+                const expiresAt = toNum(keyData.expiresAt);
+                const isExpired = expiresAt > 0 && expiresAt < now;
                 const isRevoked = keyData.revoked === 'true';
 
                 let status = 'active';
@@ -52,34 +71,44 @@ module.exports = async function handler(req, res) {
                     active++;
                 }
 
-                const toNum = (val) => {
-                    const n = parseInt(val);
-                    return isNaN(n) ? 0 : n;
-                };
+                // Consolidated Activity Tracking
+                // We check every single possible timestamp to find the most recent interaction
+                const activitySignals = [
+                    toNum(keyData.lastHeartbeat),
+                    toNum(keyData.lastUsed),
+                    toNum(keyData.lastMacCheck),
+                    toNum(keyData.activatedAt),
+                    toNum(keyData.macActivatedAt),
+                    toNum(keyData.deviceActivatedAt),
+                    toNum(keyData.createdAt) // Absolute fallback
+                ];
+                
+                const lastActiveAt = Math.max(...activitySignals);
 
                 keys.push({
-                    key: keyData.key,
+                    key: keyData.key || rawKey,
                     label: keyData.label || '',
                     status: status,
                     deviceId: keyData.deviceId || null,
                     createdAt: toNum(keyData.createdAt),
-                    expiresAt: toNum(keyData.expiresAt),
+                    expiresAt: expiresAt,
                     expiresInDays: toNum(keyData.expiresInDays),
                     killSwitch: String(keyData.killSwitch) === 'true',
                     maxDevices: toNum(keyData.maxDevices) || 1,
                     disableDeviceRestriction: String(keyData.disableDeviceRestriction) === 'true',
                     deviceIds: keyData.deviceIds ? keyData.deviceIds.split(',') : (keyData.deviceId ? [keyData.deviceId] : []),
                     macAddresses: keyData.macAddresses ? keyData.macAddresses.split(',') : (keyData.macAddress ? [keyData.macAddress] : []),
-                    activatedAt: toNum(keyData.activatedAt),
-                    deviceActivatedAt: toNum(keyData.deviceActivatedAt),
-                    macActivatedAt: toNum(keyData.macActivatedAt),
-                    lastUsed: toNum(keyData.lastUsed),
+                    
+                    // Specific fields
                     lastHeartbeat: toNum(keyData.lastHeartbeat),
-                    lastMacCheck: toNum(keyData.lastMacCheck),
-                    isOnline: String(keyData.isOnline) === 'true'
+                    lastUsed: toNum(keyData.lastUsed),
+                    isOnline: String(keyData.isOnline) === 'true',
+                    
+                    // Unified signal
+                    lastActiveAt: lastActiveAt
                 });
             }
-        }
+        });
 
         // Sort by creation date (newest first)
         keys.sort((a, b) => b.createdAt - a.createdAt);

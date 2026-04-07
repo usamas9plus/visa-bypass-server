@@ -143,28 +143,24 @@ function renderKeys(keys) {
         const deviceCount = key.deviceIds ? key.deviceIds.length : 0;
         const maxDevices = key.maxDevices || 1;
         const deviceLimitDisplay = `${deviceCount}/${maxDevices}`;
-        
+
         // Restriction Toggle
         const restrictionChecked = !key.disableDeviceRestriction ? 'checked' : '';
         const restrictionTitle = key.disableDeviceRestriction ? 'Device restriction is DISABLED' : 'Device restriction is ACTIVE';
 
         // Online Status & Last Seen
-        // Fallback chain: Heartbeat > Usage > MAC Check > Activation Date
-        const lastSeenTimestamp = Math.max(
-            key.lastHeartbeat || 0, 
-            key.lastUsed || 0, 
-            key.lastMacCheck || 0,
-            key.activatedAt || 0,
-            key.macActivatedAt || 0,
-            key.deviceActivatedAt || 0
-        );
+        // server now calculates key.lastActiveAt for us
+        const lastSeenTimestamp = key.lastActiveAt || 0;
         
+        // Online if heartbeat is within 15 mins
         const isOnline = key.isOnline && (Date.now() - (key.lastHeartbeat || 0) < 15 * 60 * 1000);
         const onlineHtml = isOnline
-            ? '<span class="online-dot online" title="Online">●</span>'
-            : '<span class="online-dot" title="Offline">●</span>';
+            ? '<span class="online-dot online" title="Online: Recent App Heartbeat">●</span>'
+            : '<span class="online-dot" title="Offline: No App Heartbeat">●</span>';
 
-        const lastSeenHtml = lastSeenTimestamp > 0 ? formatRelativeTime(lastSeenTimestamp) : '<span class="text-muted">-</span>';
+        const lastSeenHtml = lastSeenTimestamp > 0 
+            ? formatRelativeTime(lastSeenTimestamp) 
+            : '<span class="text-muted">Never Seen</span>';
 
         return `
             <tr class="${killClass}">
