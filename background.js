@@ -131,7 +131,7 @@ async function clearSessionData() {
 // License Verification
 // ============================================
 
-async function verifyLicense(key = null, isInitial = false) {
+async function verifyLicense(key = null, isInitial = false, skipLocalCheck = false) {
     try {
         // Get stored key if not provided
         if (!key) {
@@ -142,6 +142,15 @@ async function verifyLicense(key = null, isInitial = false) {
         if (!key) {
             await disableProtection();
             return { valid: false, error: 'No license key' };
+        }
+
+        // NEW: Throttle server verification if it's a background sync and we have a recent token
+        // But for initial activation or manual force_verify, always go to server.
+        const storedVerify = await chrome.storage.local.get(['verifiedAt', 'token']);
+        const thirtyMins = 30 * 60 * 1000;
+        if (!isInitial && storedVerify.token && storedVerify.verifiedAt && (Date.now() - storedVerify.verifiedAt) < thirtyMins) {
+            console.log('[License] Background sync skipped, recently verified.');
+            return { valid: true, cached: true };
         }
 
         const deviceId = await generateDeviceFingerprint();
@@ -161,7 +170,6 @@ async function verifyLicense(key = null, isInitial = false) {
         const data = await response.json();
 
         if (response.ok && data.valid) {
-            // ... (keep existing success logic)
             // Store verification data with integrity check
             const verificationData = {
                 licenseKey: key,
@@ -174,26 +182,29 @@ async function verifyLicense(key = null, isInitial = false) {
             };
 
             await chrome.storage.local.set(verificationData);
-            // Persistent storage that survives logout for pre-filling
             await chrome.storage.local.set({ rememberedLicenseKey: key });
             await enableProtection();
 
-            console.log('[License] Verified successfully. Days remaining:', data.daysRemaining);
+            console.log('[License] Verified successfully with server.');
             return { valid: true, daysRemaining: data.daysRemaining };
         } else {
-            await chrome.storage.local.remove(['licenseKey', 'token', 'expiresAt', 'verifiedAt', 'checksum']);
-            await disableProtection();
-
-            // Check for BLOCKED
-            if (data.blocked) {
-                return {
-                    valid: false,
-                    blocked: true,
-                    error: 'BLOCKED'
-                };
+            // Simplified error handling - background checks shouldn't do complex retries or local pings here
+            // The local ping is now handled by its own dedicated alarm.
+            if (!isInitial) {
+                 console.warn('[License] Server verification failed in background.');
+                 return { valid: false, error: data.error || 'Server error' };
             }
 
-            // Pass through requiresActivation flag if the server says MAC is not bound
+            // For INITIAL activation, we still check if the local app is running to provide a better error message
+            try {
+                const localPing = await fetch('http://127.0.0.1:31337/status?nonce=login_check');
+                if (!localPing.ok) {
+                    return { valid: false, error: 'Run Python App First!', requiresActivation: true };
+                }
+            } catch (e) {}
+
+            await chrome.storage.local.remove(['licenseKey', 'token', 'expiresAt', 'verifiedAt', 'checksum']);
+            await disableProtection();
             return {
                 valid: false,
                 error: data.error || 'Verification failed',
@@ -201,7 +212,6 @@ async function verifyLicense(key = null, isInitial = false) {
                 code: data.code || null
             };
         }
-
     } catch (error) {
         console.error('[License] Verification error:', error);
         return { valid: false, error: 'Connection error' };
@@ -343,10 +353,19 @@ async function checkLicenseOnStartup() {
         return;
     }
 
-    // Re-verify with server if last check was more than 1 hour ago
-    const oneHour = 60 * 60 * 1000;
-    if (!stored.verifiedAt || (Date.now() - stored.verifiedAt) > oneHour) {
-        console.log('[Startup] Re-verifying with server...');
+    // Check local connectivity first
+    const localResult = await checkLocalHealth();
+    if (!localResult.valid) {
+        console.error('[Startup] Local Python app not detected or invalid signature');
+        await clearSessionData();
+        await disableProtection();
+        return;
+    }
+
+    // Re-verify with server if last check was more than 30 minutes ago
+    const syncThreshold = 30 * 60 * 1000;
+    if (!stored.verifiedAt || (Date.now() - stored.verifiedAt) > syncThreshold) {
+        console.log('[Startup] Syncing with server...');
         await verifyLicense();
     } else {
         // Trust local data, enable protection
@@ -365,51 +384,64 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 function setupAlarms() {
-    // Heartbeat alarm every 10 minutes
-    chrome.alarms.create('heartbeat', { periodInMinutes: 10 });
-    // Full re-validation every 30 minutes
-    chrome.alarms.create('revalidate', { periodInMinutes: 30 });
+    // Local health check every 1 minute (Low cost)
+    chrome.alarms.create('local_ping', { periodInMinutes: 1 });
+    // Full server sync every 30 minutes (Prevents Vercel 429)
+    chrome.alarms.create('server_sync', { periodInMinutes: 30 });
 }
 
 chrome.alarms.onAlarm.addListener((alarm) => {
-    if (alarm.name === 'heartbeat') {
-        periodicHeartbeatCheck();
-    } else if (alarm.name === 'revalidate') {
-        const stored = chrome.storage.local.get(['licenseKey']).then(s => {
-            if (s.licenseKey) verifyLicense();
+    if (alarm.name === 'local_ping') {
+        checkLocalHealth().then(res => {
+            if (!res.valid) {
+                console.log('[Heartbeat] Local connection lost. Logging out...');
+                deactivateLicense();
+            }
         });
+    } else if (alarm.name === 'server_sync') {
+        verifyLicense();
     }
 });
 
-// Also run immediately when service worker loads
-checkLicenseOnStartup();
-setupAlarms();
-
 // ============================================
-// Periodic Heartbeat Check (every 2 minutes)
-// This ensures protection is disabled when Python program stops
+// Secure Local Health Check
 // ============================================
 
-async function periodicHeartbeatCheck() {
-    const stored = await chrome.storage.local.get(['licenseKey']);
+async function checkLocalHealth() {
+    try {
+        const stored = await chrome.storage.local.get(['licenseKey']);
+        if (!stored.licenseKey) return { valid: false };
 
-    if (!stored.licenseKey) {
-        await disableProtection();
-        return;
-    }
+        // 1. Generate Nonce
+        const nonce = Math.random().toString(36).substring(7) + Date.now();
 
-    // Verify with server to check heartbeat
-    console.log('[Heartbeat Check] Verifying with server...');
-    // Use retry logic to avoid false disconnects
-    const result = await verifyLicenseWithRetry(stored.licenseKey, 3);
-    if (!result.valid) {
-        console.log('[Heartbeat Check] Verification failed:', result.error);
+        // 2. Ping Local Server
+        const response = await fetch(`http://127.0.0.1:31337/status?nonce=${nonce}`, {
+            method: 'GET',
+            mode: 'cors',
+            cache: 'no-cache'
+        });
 
-        // If heartbeat is not detected (any error), force full logout
-        console.warn('[Heartbeat Check] Heartbeat not detected. Forced logging out...');
+        if (!response.ok) return { valid: false };
 
-        await disableProtection();
-        await clearSessionData();
+        const data = await response.json();
+
+        // 3. Verify Signature: HMAC-SHA256(nonce, SIGN_SECRET + license_key)
+        const expectedSigData = `${nonce}:${SIGN_SECRET}:${stored.licenseKey}`;
+        const encoder = new TextEncoder();
+        const hashBuffer = await crypto.subtle.digest('SHA-256', encoder.encode(expectedSigData));
+        const expectedSignature = Array.from(new Uint8Array(hashBuffer))
+            .map(b => b.toString(16).padStart(2, '0'))
+            .join('');
+
+        if (data.signature !== expectedSignature) {
+            console.error('[Security] Local signature mismatch!');
+            return { valid: false };
+        }
+
+        return { valid: true };
+    } catch (e) {
+        return { valid: false, error: e.message };
     }
 }
 

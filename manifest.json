@@ -16,6 +16,7 @@
     "host_permissions": [
         "*://*.thespainvisa.com/*",
         "*://*.blsspainglobal.com/*",
+        "*://*.blsspainmorocco.net/*",
 		"*://*.theitalyvisa.com/*",
         "*://*.blsspainvisa.com/*"
     ],
@@ -28,6 +29,8 @@
                 "*://*.thespainvisa.com/*",
                 "*://*.theitalyvisa.com/*",
 				"*://*.blsspainglobal.com/*",
+                "*://*.blsspainglobal.com/*",
+                "*://*.blsspainmorocco.net/*",
                 "*://*.blsspainvisa.com/*"
             ],
             "js": [
@@ -41,7 +44,8 @@
             "matches": [
                 "*://*.thespainvisa.com/*",
                 "*://*.blsspainglobal.com/*",
-				"*://*.theitalyvisa.com/*",
+				"*://*.blsspainmorocco.net/*",
+                "*://*.theitalyvisa.com/*",
                 "*://*.blsspainvisa.com/*"
             ],
             "js": [

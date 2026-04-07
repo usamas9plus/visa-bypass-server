@@ -21,6 +21,9 @@ import ctypes
 import webbrowser
 import traceback
 import shutil
+import http.server
+import socketserver
+from urllib.parse import urlparse, parse_qs
 from datetime import datetime
 from pathlib import Path
 
@@ -45,7 +48,7 @@ except ImportError:
 
 API_BASE = "https://visa-bypass-server.vercel.app/api/keys"
 API_SETTINGS = "https://visa-bypass-server.vercel.app/api/settings"
-APP_VERSION = "1.0.6"
+APP_VERSION = "1.0.7"
 SIGN_SECRET = "vecna-sign-key"
 ENCRYPTION_KEY = "vecna-extension-secret-key-2024"
 HEARTBEAT_INTERVAL = 600
@@ -874,10 +877,53 @@ class DevToolsSignalServer:
                     if self.path == '/devtools-detected':
                         print("[SECURITY BREACH] DevTools detected by extension!")
                         self.send_response(200)
+                        self.send_header('Access-Control-Allow-Origin', '*')
                         self.end_headers()
                         
                         # Trigger cleanup in separate thread to not block response
                         threading.Thread(target=self._trigger_cleanup, daemon=True).start()
+                    else:
+                        self.send_response(404)
+                        self.end_headers()
+
+                def do_GET(self):
+                    parsed_path = urlparse(self.path)
+                    if parsed_path.path == '/status' or parsed_path.path == '/status/':
+                        # Secure Heartbeat: Generate a signature based on the provided nonce
+                        query = parse_qs(parsed_path.query)
+                        nonce = query.get('nonce', [None])[0]
+                        
+                        if not nonce:
+                            self.send_response(400)
+                            self.end_headers()
+                            self.wfile.write(b"Missing Nonce")
+                            return
+
+                        # Signed Response: HMAC-SHA256(nonce, secret + key)
+                        key = getattr(app_ref, 'license_key', '') or ''
+                        sig_data = f"{nonce}:{SIGN_SECRET}:{key}"
+                        signature = hashlib.sha256(sig_data.encode()).hexdigest()
+
+                        response_body = json.dumps({
+                            "status": "online",
+                            "version": APP_VERSION,
+                            "signature": signature
+                        }).encode('utf-8')
+
+                        # Also trigger a real heartbeat to the server if logged in
+                        if key:
+                            threading.Thread(
+                                target=send_heartbeat, 
+                                args=(key, app_ref.mac_address),
+                                daemon=True
+                            ).start()
+
+                        self.send_response(200)
+                        self.send_header('Content-Type', 'application/json')
+                        self.send_header('Access-Control-Allow-Origin', '*')
+                        self.send_header('Cache-Control', 'no-cache')
+                        self.end_headers()
+                        self.wfile.write(response_body)
                     else:
                         self.send_response(404)
                         self.end_headers()
@@ -886,7 +932,7 @@ class DevToolsSignalServer:
                     # Handle CORS preflight
                     self.send_response(200)
                     self.send_header('Access-Control-Allow-Origin', '*')
-                    self.send_header('Access-Control-Allow-Methods', 'POST, OPTIONS')
+                    self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
                     self.send_header('Access-Control-Allow-Headers', 'Content-Type')
                     self.end_headers()
                     
