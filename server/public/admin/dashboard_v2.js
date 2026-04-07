@@ -182,7 +182,7 @@ window.toggleKill = async (key, active) => {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${ADMIN_PASSWORD}`
             },
-            body: JSON.stringify({ key, active })
+            body: JSON.stringify({ key, enabled: active })
         });
         if (!response.ok) throw new Error('Action failed');
         loadKeys();
