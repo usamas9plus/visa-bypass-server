@@ -66,7 +66,9 @@ module.exports = async function handler(req, res) {
                     deviceIds: keyData.deviceIds ? keyData.deviceIds.split(',') : (keyData.deviceId ? [keyData.deviceId] : []),
                     macAddresses: keyData.macAddresses ? keyData.macAddresses.split(',') : (keyData.macAddress ? [keyData.macAddress] : []),
                     activatedAt: keyData.activatedAt ? parseInt(keyData.activatedAt) : null,
-                    lastUsed: keyData.lastUsed ? parseInt(keyData.lastUsed) : null
+                    lastUsed: keyData.lastUsed ? parseInt(keyData.lastUsed) : null,
+                    lastHeartbeat: keyData.lastHeartbeat ? parseInt(keyData.lastHeartbeat) : null,
+                    isOnline: String(keyData.isOnline) === 'true'
                 });
             }
         }

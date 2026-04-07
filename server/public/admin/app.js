@@ -147,13 +147,14 @@ function renderKeys(keys) {
         const restrictionChecked = !key.disableDeviceRestriction ? 'checked' : '';
         const restrictionTitle = key.disableDeviceRestriction ? 'Device restriction is DISABLED' : 'Device restriction is ACTIVE';
 
-        // Online Status (based on any device)
+        // Online Status & Last Seen
+        const lastSeenTimestamp = Math.max(key.lastHeartbeat || 0, key.lastUsed || 0);
         const isOnline = key.isOnline && (Date.now() - (key.lastHeartbeat || 0) < 15 * 60 * 1000);
         const onlineHtml = isOnline
             ? '<span class="online-dot online" title="Online">●</span>'
             : '<span class="online-dot" title="Offline">●</span>';
 
-        const lastSeenHtml = key.lastHeartbeat ? formatRelativeTime(key.lastHeartbeat) : '<span class="text-muted">-</span>';
+        const lastSeenHtml = lastSeenTimestamp > 0 ? formatRelativeTime(lastSeenTimestamp) : '<span class="text-muted">-</span>';
 
         return `
             <tr class="${killClass}">
