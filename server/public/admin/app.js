@@ -98,6 +98,7 @@ async function loadKeys() {
         if (!response.ok) throw new Error('Failed to load keys');
 
         const data = await response.json();
+        console.log('DEBUG: Keys Data', data.keys);
 
         // Update stats
         statTotal.textContent = data.stats.total;
@@ -148,7 +149,16 @@ function renderKeys(keys) {
         const restrictionTitle = key.disableDeviceRestriction ? 'Device restriction is DISABLED' : 'Device restriction is ACTIVE';
 
         // Online Status & Last Seen
-        const lastSeenTimestamp = Math.max(key.lastHeartbeat || 0, key.lastUsed || 0);
+        // Fallback chain: Heartbeat > Usage > MAC Check > Activation Date
+        const lastSeenTimestamp = Math.max(
+            key.lastHeartbeat || 0, 
+            key.lastUsed || 0, 
+            key.lastMacCheck || 0,
+            key.activatedAt || 0,
+            key.macActivatedAt || 0,
+            key.deviceActivatedAt || 0
+        );
+        
         const isOnline = key.isOnline && (Date.now() - (key.lastHeartbeat || 0) < 15 * 60 * 1000);
         const onlineHtml = isOnline
             ? '<span class="online-dot online" title="Online">●</span>'

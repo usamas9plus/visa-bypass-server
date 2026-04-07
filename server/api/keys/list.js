@@ -52,22 +52,30 @@ module.exports = async function handler(req, res) {
                     active++;
                 }
 
+                const toNum = (val) => {
+                    const n = parseInt(val);
+                    return isNaN(n) ? 0 : n;
+                };
+
                 keys.push({
                     key: keyData.key,
                     label: keyData.label || '',
                     status: status,
                     deviceId: keyData.deviceId || null,
-                    createdAt: parseInt(keyData.createdAt),
-                    expiresAt: expiresAt,
-                    expiresInDays: parseInt(keyData.expiresInDays),
+                    createdAt: toNum(keyData.createdAt),
+                    expiresAt: toNum(keyData.expiresAt),
+                    expiresInDays: toNum(keyData.expiresInDays),
                     killSwitch: String(keyData.killSwitch) === 'true',
-                    maxDevices: parseInt(keyData.maxDevices) || 1,
+                    maxDevices: toNum(keyData.maxDevices) || 1,
                     disableDeviceRestriction: String(keyData.disableDeviceRestriction) === 'true',
                     deviceIds: keyData.deviceIds ? keyData.deviceIds.split(',') : (keyData.deviceId ? [keyData.deviceId] : []),
                     macAddresses: keyData.macAddresses ? keyData.macAddresses.split(',') : (keyData.macAddress ? [keyData.macAddress] : []),
-                    activatedAt: keyData.activatedAt ? parseInt(keyData.activatedAt) : null,
-                    lastUsed: keyData.lastUsed ? parseInt(keyData.lastUsed) : null,
-                    lastHeartbeat: keyData.lastHeartbeat ? parseInt(keyData.lastHeartbeat) : null,
+                    activatedAt: toNum(keyData.activatedAt),
+                    deviceActivatedAt: toNum(keyData.deviceActivatedAt),
+                    macActivatedAt: toNum(keyData.macActivatedAt),
+                    lastUsed: toNum(keyData.lastUsed),
+                    lastHeartbeat: toNum(keyData.lastHeartbeat),
+                    lastMacCheck: toNum(keyData.lastMacCheck),
                     isOnline: String(keyData.isOnline) === 'true'
                 });
             }
