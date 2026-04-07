@@ -1,7 +1,8 @@
-// Vecna License Admin - Dashboard Logic v1.1.0
-// Renamed to dashboard_v2.js to break aggessive browser cache
+// Vecna License Admin - Dashboard Logic v1.1.1
+// Complete restoration of Global Settings & Key Creation features
 
-const API_BASE = '/api/keys';
+const API_KEYS = '/api/keys';
+const API_SETTINGS = '/api/settings';
 let ADMIN_PASSWORD = '';
 
 // Auth Check
@@ -14,6 +15,7 @@ function checkAuth() {
     ADMIN_PASSWORD = password;
     showScreen('dashboard-screen');
     loadKeys();
+    loadSettings(); // Added in v1.1.1
     return true;
 }
 
@@ -38,6 +40,89 @@ document.getElementById('logout-btn').onclick = () => {
     location.reload();
 };
 
+// Load Settings (v1.1.1)
+async function loadSettings() {
+    try {
+        const response = await fetch(API_SETTINGS);
+        if (!response.ok) throw new Error('Settings load failed');
+        const data = await response.json();
+        
+        document.getElementById('latest-version').value = data.latestVersion || '';
+        document.getElementById('update-url').value = data.updateUrl || '';
+        document.getElementById('latest-version-trial').value = data.latestVersion_trial || '';
+        document.getElementById('update-url-trial').value = data.updateUrl_trial || '';
+    } catch (error) {
+        console.error('Settings load error:', error);
+    }
+}
+
+// Update Settings (v1.1.1)
+document.getElementById('settings-form').onsubmit = async (e) => {
+    e.preventDefault();
+    const btn = e.target.querySelector('button');
+    btn.disabled = true;
+    
+    try {
+        const payload = {
+            latestVersion: document.getElementById('latest-version').value,
+            updateUrl: document.getElementById('update-url').value,
+            latestVersion_trial: document.getElementById('latest-version-trial').value,
+            updateUrl_trial: document.getElementById('update-url-trial').value
+        };
+
+        const response = await fetch(API_SETTINGS, {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${ADMIN_PASSWORD}`
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) throw new Error('Failed to save settings');
+        showToast('Global settings updated successfully');
+    } catch (error) {
+        showToast(error.message, 'error');
+    } finally {
+        btn.disabled = false;
+    }
+};
+
+// Create License Key (v1.1.1)
+document.getElementById('create-key-form').onsubmit = async (e) => {
+    e.preventDefault();
+    const btn = e.target.querySelector('button');
+    btn.disabled = true;
+
+    try {
+        const payload = {
+            label: document.getElementById('key-label').value,
+            expiresInDays: parseInt(document.getElementById('key-days').value),
+            maxDevices: parseInt(document.getElementById('key-max-devices').value)
+        };
+
+        const response = await fetch(`${API_KEYS}/create`, {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${ADMIN_PASSWORD}`
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) throw new Error('Failed to create key');
+        const data = await response.json();
+        
+        document.getElementById('key-label').value = '';
+        showToast('New license key generated!');
+        loadKeys(); // Refresh table
+    } catch (error) {
+        showToast(error.message, 'error');
+    } finally {
+        btn.disabled = false;
+    }
+};
+
 // Load Keys
 async function loadKeys() {
     const keysTbody = document.getElementById('keys-tbody');
@@ -47,7 +132,7 @@ async function loadKeys() {
     const statRevoked = document.getElementById('stat-revoked');
 
     try {
-        const response = await fetch(`${API_BASE}/list?t=${Date.now()}`, {
+        const response = await fetch(`${API_KEYS}/list?t=${Date.now()}`, {
             headers: { 'Authorization': `Bearer ${ADMIN_PASSWORD}` }
         });
 
@@ -62,11 +147,7 @@ async function loadKeys() {
 
         const data = await response.json();
         
-        // DEBUG: LOG DATA TO CONSOLE FOR TRACING
-        console.warn('DEBUG: V1.1.0 DATA RECEIVED', data);
-        if (data._debug_sample) {
-            console.log('DEBUG: RAW KEY SAMPLE', data._debug_sample);
-        }
+        console.warn('DEBUG: V1.1.1 DATA RECEIVED', data);
 
         statTotal.textContent = data.stats.total;
         statActive.textContent = data.stats.active;
@@ -176,7 +257,7 @@ window.copyKey = (key) => {
 
 window.toggleKill = async (key, active) => {
     try {
-        const response = await fetch(`${API_BASE}/toggle-kill`, {
+        const response = await fetch(`${API_KEYS}/toggle-kill`, {
             method: 'POST',
             headers: { 
                 'Content-Type': 'application/json',
@@ -196,7 +277,7 @@ window.toggleKill = async (key, active) => {
 window.revokeKey = async (key) => {
     if (!confirm('Are you sure you want to PERMANENTLY revoke this key?')) return;
     try {
-        const response = await fetch(`${API_BASE}/revoke`, {
+        const response = await fetch(`${API_KEYS}/revoke`, {
             method: 'POST',
             headers: { 
                 'Content-Type': 'application/json',
@@ -218,7 +299,7 @@ window.updateKeyRestrictions = async (key, maxDevices, disableRestriction) => {
         if (maxDevices !== null) payload.maxDevices = parseInt(maxDevices);
         if (disableRestriction !== null) payload.disableDeviceRestriction = disableRestriction;
 
-        const response = await fetch(`${API_BASE}/update-restrictions`, {
+        const response = await fetch(`${API_KEYS}/update-restrictions`, {
             method: 'POST',
             headers: { 
                 'Content-Type': 'application/json',
@@ -237,7 +318,7 @@ window.updateKeyRestrictions = async (key, maxDevices, disableRestriction) => {
 window.resetDevice = async (key) => {
     if (!confirm('Clear all device registrations for this key?')) return;
     try {
-        const response = await fetch(`${API_BASE}/reset-device`, {
+        const response = await fetch(`${API_KEYS}/reset-device`, {
             method: 'POST',
             headers: { 
                 'Content-Type': 'application/json',
@@ -265,7 +346,7 @@ function showToast(message, type = 'success') {
 
 // Initial Check
 document.addEventListener('DOMContentLoaded', () => {
-    console.warn('VECNA DASHBOARD v1.1.0 STARTING...');
+    console.warn('VECNA DASHBOARD v1.1.1 STARTING...');
     checkAuth();
 });
 
