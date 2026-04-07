@@ -30,14 +30,10 @@ module.exports = async function handler(req, res) {
             return res.status(200).json({ keys: [], stats: { total: 0, active: 0, expired: 0, revoked: 0 } });
         }
 
-        // Fetch all key data in a SINGLE BATCH using pipeline
-        const p = redis.pipeline();
-        allKeys.forEach(key => p.hgetall(`key:${key}`));
-        const results = await p.exec();
-
         const keys = [];
         let active = 0, expired = 0, revoked = 0;
         const now = Date.now();
+        let debugSample = null;
 
         // Helper for robust numeric conversion
         const toNum = (val) => {
@@ -46,14 +42,10 @@ module.exports = async function handler(req, res) {
             return isNaN(n) ? 0 : n;
         };
 
-        results.forEach((keyData, index) => {
-            const rawKey = allKeys[index];
+        // Sequential fetching (More robust for now, ruling out pipeline)
+        for (const key of allKeys) {
+            const keyData = await redis.hgetall(`key:${key}`);
             
-            // SECURITY DIAGNOSTIC for First 5 keys (Debug only)
-            if (index < 5) {
-                console.log(`[DIAGNOSTIC] Key: ${rawKey} Data:`, JSON.stringify(keyData));
-            }
-
             if (keyData && (keyData.key || keyData.createdAt)) {
                 // Determine current status
                 const expiresAt = toNum(keyData.expiresAt);
@@ -72,21 +64,17 @@ module.exports = async function handler(req, res) {
                 }
 
                 // Consolidated Activity Tracking
-                // We check every single possible timestamp to find the most recent interaction
-                const activitySignals = [
+                const lastActiveAt = Math.max(
                     toNum(keyData.lastHeartbeat),
                     toNum(keyData.lastUsed),
                     toNum(keyData.lastMacCheck),
-                    toNum(keyData.activatedAt),
                     toNum(keyData.macActivatedAt),
-                    toNum(keyData.deviceActivatedAt),
-                    toNum(keyData.createdAt) // Absolute fallback
-                ];
-                
-                const lastActiveAt = Math.max(...activitySignals);
+                    toNum(keyData.activatedAt),
+                    toNum(keyData.createdAt)
+                );
 
-                keys.push({
-                    key: keyData.key || rawKey,
+                const k = {
+                    key: keyData.key || key,
                     label: keyData.label || '',
                     status: status,
                     deviceId: keyData.deviceId || null,
@@ -95,33 +83,35 @@ module.exports = async function handler(req, res) {
                     expiresInDays: toNum(keyData.expiresInDays),
                     killSwitch: String(keyData.killSwitch) === 'true',
                     maxDevices: toNum(keyData.maxDevices) || 1,
-                    disableDeviceRestriction: String(keyData.disableDeviceRestriction) === 'true',
-                    deviceIds: keyData.deviceIds ? keyData.deviceIds.split(',') : (keyData.deviceId ? [keyData.deviceId] : []),
-                    macAddresses: keyData.macAddresses ? keyData.macAddresses.split(',') : (keyData.macAddress ? [keyData.macAddress] : []),
-                    
-                    // Specific fields
+                    deviceIds: keyData.deviceIds ? keyData.deviceIds.split(',') : [],
                     lastHeartbeat: toNum(keyData.lastHeartbeat),
-                    lastUsed: toNum(keyData.lastUsed),
-                    isOnline: String(keyData.isOnline) === 'true',
-                    
-                    // Unified signal
-                    lastActiveAt: lastActiveAt
-                });
+                    lastActiveAt: lastActiveAt,
+                    isOnline: String(keyData.isOnline) === 'true'
+                };
+
+                keys.push(k);
+
+                // Capture one debug sample for the UI to show why Last Seen might be 0
+                if (!debugSample && lastActiveAt > 0) {
+                    debugSample = { raw: keyData, processed: k };
+                }
             }
-        });
+        }
 
         // Sort by creation date (newest first)
         keys.sort((a, b) => b.createdAt - a.createdAt);
 
         res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
         return res.status(200).json({
+            version: "1.1.0",
             keys: keys,
             stats: {
                 total: keys.length,
                 active: active,
                 expired: expired,
                 revoked: revoked
-            }
+            },
+            _debug_sample: debugSample
         });
 
     } catch (error) {
