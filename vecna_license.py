@@ -186,7 +186,9 @@ def send_heartbeat(license_key, mac_address, offline=False, force=False, config=
         
         # 2. Cross-process persistent guard: Read FRESH from disk every time
         #    This prevents multiple Python processes from spamming heartbeats
-        if not force and not offline:
+        #    BUT: Skip this on first launch (_GLOBAL_LAST_HB == 0) so the server
+        #    knows we are back online after a restart
+        if not force and not offline and _GLOBAL_LAST_HB != 0:
             try:
                 disk_config = load_config()
                 disk_last_hb = disk_config.get('last_heartbeat_time', 0)
