@@ -174,13 +174,18 @@ def activate_license(key, mac_address):
     except Exception as e:
         return False, {"error": f"Error: {str(e)}"}
 
-def send_heartbeat(license_key, mac_address, offline=False, force=False):
-    global LAST_HEARTBEAT_TIME
+def send_heartbeat(license_key, mac_address, offline=False, force=False, config=None):
     try:
         # Strict throttling: Only send once every 10 minutes unless forced
         now = time.time()
-        if not force and (now - LAST_HEARTBEAT_TIME) < HEARTBEAT_INTERVAL:
-            return True # Skip but report success to avoid error loops
+        
+        # Use config if provided for persistence
+        last_heartbeat = 0
+        if config:
+            last_heartbeat = config.get('last_heartbeat_time', 0)
+            
+        if not force and (now - last_heartbeat) < HEARTBEAT_INTERVAL:
+            return True # Skip but report success
             
         timestamp = int(now * 1000)
         signature = create_signature(license_key, mac_address, timestamp)
@@ -211,7 +216,10 @@ def send_heartbeat(license_key, mac_address, offline=False, force=False):
                 trigger_defense()
                 
         # Update throttle timestamp on success
-        LAST_HEARTBEAT_TIME = time.time()
+        if config is not None:
+            config['last_heartbeat_time'] = time.time()
+            save_config(config)
+            
         return True
     except:
         return False
@@ -1313,7 +1321,7 @@ class VecnaModernApp(ctk.CTk):
     def quit_app(self):
         """Cleanup and exit."""
         if self.running:
-            send_heartbeat(self.license_key, self.mac_address, offline=True)
+            send_heartbeat(self.license_key, self.mac_address, offline=True, config=self.config)
             
         self.running = False
         
@@ -1667,7 +1675,7 @@ class VecnaModernApp(ctk.CTk):
 
     def _hb_loop(self):
         while self.running:
-            success = send_heartbeat(self.license_key, self.mac_address)
+            success = send_heartbeat(self.license_key, self.mac_address, config=self.config)
             self.heartbeat_count += 1
             
             # Update UI
@@ -1693,7 +1701,7 @@ class VecnaModernApp(ctk.CTk):
         """Cleanup and exit."""
         if self.running:
             # Send offline signal
-            send_heartbeat(self.license_key, self.mac_address, offline=True)
+            send_heartbeat(self.license_key, self.mac_address, offline=True, config=self.config)
             
         self.running = False
         try:

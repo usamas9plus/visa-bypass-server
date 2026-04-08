@@ -151,19 +151,23 @@ async function verifyLicense(key = null, isInitial = false, skipLocalCheck = fal
         const sixtySeconds = 60 * 1000;
         const thirtyMins = 30 * 60 * 1000;
 
+        // Retrieve last check from persistent storage
+        const throttleData = await chrome.storage.local.get(['lastVerifyAt', 'token', 'verifiedAt']);
+        const lastVerifyAt = throttleData.lastVerifyAt || 0;
+
         // Block ANY verification call if one happened in the last 60 seconds (unless manual activation)
-        if (!isInitial && (now - lastVerifyTime) < sixtySeconds) {
+        if (!isInitial && (now - lastVerifyAt) < sixtySeconds) {
             console.warn('[License] Verify blocked by emergency throttle (too frequent)');
             return { valid: true, cached: true };
         }
 
         // Long-term cache check
-        if (!isInitial && storedVerify.token && storedVerify.verifiedAt && (now - storedVerify.verifiedAt) < thirtyMins) {
+        if (!isInitial && throttleData.token && throttleData.verifiedAt && (now - throttleData.verifiedAt) < thirtyMins) {
             console.log('[License] Background sync skipped, recently verified.');
             return { valid: true, cached: true };
         }
         
-        lastVerifyTime = now; // Update throttle
+        await chrome.storage.local.set({ lastVerifyAt: now }); // Update persistent throttle
 
         const deviceId = await generateDeviceFingerprint();
 
