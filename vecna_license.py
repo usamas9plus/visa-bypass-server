@@ -52,7 +52,8 @@ APP_VERSION = "1.0.7"
 SIGN_SECRET = "vecna-sign-key"
 ENCRYPTION_KEY = "vecna-extension-secret-key-2024"
 HEARTBEAT_INTERVAL = 600
-LAST_HEARTBEAT_TIME = 0 # Added for throttling
+LAST_HEARTBEAT_TIME = 0 
+_GLOBAL_LAST_HB = 0 # Strict in-memory throttle v1.1.4
 # Config path in AppData to ensure it's writable
 if os.name == 'nt':
     app_data = os.getenv('APPDATA')
@@ -175,18 +176,24 @@ def activate_license(key, mac_address):
         return False, {"error": f"Error: {str(e)}"}
 
 def send_heartbeat(license_key, mac_address, offline=False, force=False, config=None):
+    global _GLOBAL_LAST_HB
     try:
         # Strict throttling: Only send once every 10 minutes unless forced
         now = time.time()
         
-        # Use config if provided for persistence
+        # 1. Global in-memory guard (Prevents multi-thread spam)
+        if not force and (now - _GLOBAL_LAST_HB) < (HEARTBEAT_INTERVAL - 10):
+            return True
+        
+        # 2. Persistent config guard
         last_heartbeat = 0
         if config:
             last_heartbeat = config.get('last_heartbeat_time', 0)
             
-        if not force and (now - last_heartbeat) < HEARTBEAT_INTERVAL:
-            return True # Skip but report success
+        if not force and (now - last_heartbeat) < (HEARTBEAT_INTERVAL - 10):
+            return True 
             
+        _GLOBAL_LAST_HB = now # Update global guard
         timestamp = int(now * 1000)
         signature = create_signature(license_key, mac_address, timestamp)
         payload = {
