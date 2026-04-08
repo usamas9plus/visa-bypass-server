@@ -178,22 +178,24 @@ def activate_license(key, mac_address):
 def send_heartbeat(license_key, mac_address, offline=False, force=False, config=None):
     global _GLOBAL_LAST_HB
     try:
-        # Strict throttling: Only send once every 10 minutes unless forced
         now = time.time()
         
-        # 1. Global in-memory guard (Prevents multi-thread spam)
-        if not force and (now - _GLOBAL_LAST_HB) < (HEARTBEAT_INTERVAL - 10):
+        # 1. Global in-memory guard (Prevents multi-thread spam within this process)
+        if not force and not offline and (now - _GLOBAL_LAST_HB) < (HEARTBEAT_INTERVAL - 10):
             return True
         
-        # 2. Persistent config guard
-        last_heartbeat = 0
-        if config:
-            last_heartbeat = config.get('last_heartbeat_time', 0)
-            
-        # FORCE first heartbeat of session (when _GLOBAL_LAST_HB is 0)
-        # Otherwise, throttle based on config file
-        if _GLOBAL_LAST_HB != 0 and not force and (now - last_heartbeat) < (HEARTBEAT_INTERVAL - 10):
-            return True 
+        # 2. Cross-process persistent guard: Read FRESH from disk every time
+        #    This prevents multiple Python processes from spamming heartbeats
+        if not force and not offline:
+            try:
+                disk_config = load_config()
+                disk_last_hb = disk_config.get('last_heartbeat_time', 0)
+                if disk_last_hb and (now - disk_last_hb) < (HEARTBEAT_INTERVAL - 10):
+                    print(f"[HB] Throttled by disk config ({int(now - disk_last_hb)}s since last)")
+                    _GLOBAL_LAST_HB = now  # Sync in-memory to avoid re-checking disk
+                    return True
+            except:
+                pass
             
         _GLOBAL_LAST_HB = now # Update global guard
         timestamp = int(now * 1000)
@@ -224,14 +226,24 @@ def send_heartbeat(license_key, mac_address, offline=False, force=False, config=
             if resp_data.get('kill') is True:
                 trigger_defense()
                 
-        # Update throttle timestamp on success
+        # Update throttle timestamp on SUCCESS — write to disk immediately
+        # This uses an atomic read-modify-write to preserve other config fields
+        try:
+            fresh_config = load_config()
+            fresh_config['last_heartbeat_time'] = time.time()
+            save_config(fresh_config)
+        except:
+            pass
+        
+        # Also update the in-memory config if provided
         if config is not None:
             config['last_heartbeat_time'] = time.time()
-            save_config(config)
             
+        print(f"[HB] Heartbeat sent {'(offline)' if offline else '(online)'}")
         return True
     except:
         return False
+
 
 # ============================================
 # Security & Persistence
