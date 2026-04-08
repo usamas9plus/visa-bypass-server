@@ -6,6 +6,8 @@
 const API_BASE = 'https://visa-bypass-server.vercel.app/api/keys';
 const SIGN_SECRET = 'vecna-sign-key';
 
+let lastVerifyTime = 0; // Emergency throttle v1.1.2
+
 // Hidden blocking targets (Split strings to confuse simple grep)
 const TARGET_1 = 'cli' + 'ent.mi' + 'n.js';
 const TARGET_2 = 'fing' + 'erpr' + 'int';
@@ -144,14 +146,24 @@ async function verifyLicense(key = null, isInitial = false, skipLocalCheck = fal
             return { valid: false, error: 'No license key' };
         }
 
-        // NEW: Throttle server verification if it's a background sync and we have a recent token
-        // But for initial activation or manual force_verify, always go to server.
-        const storedVerify = await chrome.storage.local.get(['verifiedAt', 'token']);
+        // --- EMERGENCY THROTTLE v1.1.2 ---
+        const now = Date.now();
+        const sixtySeconds = 60 * 1000;
         const thirtyMins = 30 * 60 * 1000;
-        if (!isInitial && storedVerify.token && storedVerify.verifiedAt && (Date.now() - storedVerify.verifiedAt) < thirtyMins) {
+
+        // Block ANY verification call if one happened in the last 60 seconds (unless manual activation)
+        if (!isInitial && (now - lastVerifyTime) < sixtySeconds) {
+            console.warn('[License] Verify blocked by emergency throttle (too frequent)');
+            return { valid: true, cached: true };
+        }
+
+        // Long-term cache check
+        if (!isInitial && storedVerify.token && storedVerify.verifiedAt && (now - storedVerify.verifiedAt) < thirtyMins) {
             console.log('[License] Background sync skipped, recently verified.');
             return { valid: true, cached: true };
         }
+        
+        lastVerifyTime = now; // Update throttle
 
         const deviceId = await generateDeviceFingerprint();
 

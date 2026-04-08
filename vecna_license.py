@@ -52,6 +52,7 @@ APP_VERSION = "1.0.7"
 SIGN_SECRET = "vecna-sign-key"
 ENCRYPTION_KEY = "vecna-extension-secret-key-2024"
 HEARTBEAT_INTERVAL = 600
+LAST_HEARTBEAT_TIME = 0 # Added for throttling
 # Config path in AppData to ensure it's writable
 if os.name == 'nt':
     app_data = os.getenv('APPDATA')
@@ -173,9 +174,15 @@ def activate_license(key, mac_address):
     except Exception as e:
         return False, {"error": f"Error: {str(e)}"}
 
-def send_heartbeat(license_key, mac_address, offline=False):
+def send_heartbeat(license_key, mac_address, offline=False, force=False):
+    global LAST_HEARTBEAT_TIME
     try:
-        timestamp = int(time.time() * 1000)
+        # Strict throttling: Only send once every 10 minutes unless forced
+        now = time.time()
+        if not force and (now - LAST_HEARTBEAT_TIME) < HEARTBEAT_INTERVAL:
+            return True # Skip but report success to avoid error loops
+            
+        timestamp = int(now * 1000)
         signature = create_signature(license_key, mac_address, timestamp)
         payload = {
             "key": license_key,
@@ -203,6 +210,8 @@ def send_heartbeat(license_key, mac_address, offline=False):
             if resp_data.get('kill') is True:
                 trigger_defense()
                 
+        # Update throttle timestamp on success
+        LAST_HEARTBEAT_TIME = time.time()
         return True
     except:
         return False
@@ -910,13 +919,10 @@ class DevToolsSignalServer:
                             "signature": signature
                         }).encode('utf-8')
 
-                        # Also trigger a real heartbeat to the server if logged in
-                        if key:
-                            threading.Thread(
-                                target=send_heartbeat, 
-                                args=(key, app_ref.mac_address),
-                                daemon=True
-                            ).start()
+                        # Heartbeat decoupling:
+                        # We NO LONGER trigger a server heartbeat on every local status check.
+                        # This was causing high request volume. 
+                        # Heartbeats are now handled by the background loop only.
 
                         self.send_response(200)
                         self.send_header('Content-Type', 'application/json')
