@@ -212,12 +212,31 @@ async function verifyLicense(key = null, isInitial = false, skipLocalCheck = fal
             }
 
             // For INITIAL activation, we still check if the local app is running to provide a better error message
+            // Use the key provided for this activation attempt to sign the local handshake
             try {
-                const localPing = await fetch('http://127.0.0.1:31337/status?nonce=login_check');
-                if (!localPing.ok) {
+                const nonce = 'login_' + Date.now();
+                const signData = `${nonce}:vecna-sign-key:${key}`;
+                const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(signData));
+                const sig = Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+                
+                const localPing = await fetch(`http://127.0.0.1:31337/status?nonce=${nonce}`, {
+                    method: 'GET',
+                    mode: 'cors'
+                });
+                
+                if (localPing.ok) {
+                    const localData = await localPing.json();
+                    if (localData.signature !== sig) {
+                        console.error('[License] Local signature mismatch during activation check');
+                        return { valid: false, error: 'Run Python App First!', requiresActivation: true };
+                    }
+                } else {
                     return { valid: false, error: 'Run Python App First!', requiresActivation: true };
                 }
-            } catch (e) {}
+            } catch (e) {
+                console.error('[License] Local ping failed:', e);
+                return { valid: false, error: 'Run Python App First!', requiresActivation: true };
+            }
 
             await chrome.storage.local.remove(['licenseKey', 'token', 'expiresAt', 'verifiedAt', 'checksum']);
             await disableProtection();
@@ -423,10 +442,15 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 // Secure Local Health Check
 // ============================================
 
-async function checkLocalHealth() {
+async function checkLocalHealth(overrideKey = null) {
     try {
-        const stored = await chrome.storage.local.get(['licenseKey']);
-        if (!stored.licenseKey) return { valid: false };
+        let key = overrideKey;
+        if (!key) {
+            const stored = await chrome.storage.local.get(['licenseKey']);
+            key = stored.licenseKey;
+        }
+        
+        if (!key) return { valid: false, error: 'NO_KEY' };
 
         // 1. Generate Nonce
         const nonce = Math.random().toString(36).substring(7) + Date.now();

@@ -190,7 +190,9 @@ def send_heartbeat(license_key, mac_address, offline=False, force=False, config=
         if config:
             last_heartbeat = config.get('last_heartbeat_time', 0)
             
-        if not force and (now - last_heartbeat) < (HEARTBEAT_INTERVAL - 10):
+        # FORCE first heartbeat of session (when _GLOBAL_LAST_HB is 0)
+        # Otherwise, throttle based on config file
+        if _GLOBAL_LAST_HB != 0 and not force and (now - last_heartbeat) < (HEARTBEAT_INTERVAL - 10):
             return True 
             
         _GLOBAL_LAST_HB = now # Update global guard
