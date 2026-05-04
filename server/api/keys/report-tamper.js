@@ -85,13 +85,18 @@ module.exports = async function handler(req, res) {
                 const blob = new Blob([imageBuffer], { type: 'image/jpeg' });
                 formData.append('photo', blob, 'screenshot.jpg');
 
-                await fetch(`https://api.telegram.org/bot${TG_TOKEN}/sendPhoto`, {
+                const tgRes = await fetch(`https://api.telegram.org/bot${TG_TOKEN}/sendPhoto`, {
                     method: 'POST',
                     body: formData
                 });
+                
+                if (!tgRes.ok) {
+                    const errorText = await tgRes.text();
+                    console.error(`[TAMPER REPORT] Telegram Photo Error: ${tgRes.status}`, errorText);
+                }
             } else {
                 // Send as Text only if no screenshot
-                await fetch(`https://api.telegram.org/bot${TG_TOKEN}/sendMessage`, {
+                const tgRes = await fetch(`https://api.telegram.org/bot${TG_TOKEN}/sendMessage`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -100,6 +105,11 @@ module.exports = async function handler(req, res) {
                         parse_mode: 'Markdown'
                     })
                 });
+
+                if (!tgRes.ok) {
+                    const errorText = await tgRes.text();
+                    console.error(`[TAMPER REPORT] Telegram Text Error: ${tgRes.status}`, errorText);
+                }
             }
         } catch (tgError) {
             console.error('Telegram Notify Error:', tgError);
@@ -107,10 +117,13 @@ module.exports = async function handler(req, res) {
         
         console.log(`[TAMPER REPORT] Telegram step completed for key: ${key}`);
 
-        // Logic for actually banning (Skip if autoBan is disabled)
-        if (String(autoBanEnabled) === 'false') {
-            console.log(`[TAMPER REPORT] Auto-ban is DISABLED for key: ${key}. Alert sent, but skipping ban.`);
-            return res.status(200).json({ success: true, message: 'Alert sent, but auto-ban is disabled' });
+        // Logic for actually banning (Skip if autoBan is disabled OR if it's just a screenshot request)
+        const isScreenshotRequest = reason && reason.includes("Screenshot Request");
+        
+        if (String(autoBanEnabled) === 'false' || isScreenshotRequest) {
+            const msg = isScreenshotRequest ? "Screenshot delivered (No ban needed)" : "Alert sent (Auto-ban disabled)";
+            console.log(`[TAMPER REPORT] Skipping ban for key: ${key}. Reason: ${msg}`);
+            return res.status(200).json({ success: true, message: msg });
         }
 
         // Set Kill Switch to TRUE (Ban the user)

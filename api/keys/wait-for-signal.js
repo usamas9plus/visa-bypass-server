@@ -24,7 +24,7 @@ module.exports = async function handler(req, res) {
         while (Date.now() - startTime < timeout) {
             const signal = await redis.hget(`key:${key}`, 'requestScreenshot');
             
-            if (signal === 'true') {
+            if (String(signal) === 'true') {
                 // Clear the flag immediately
                 await redis.hdel(`key:${key}`, 'requestScreenshot');
                 console.log(`[SIGNAL WAIT] Signal FOUND for key: ${key}. Sending to client.`);
