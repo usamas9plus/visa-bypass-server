@@ -147,7 +147,7 @@ def activate_license(key, mac_address):
             
             # CHECK FOR KILL SIGNAL
             if res_data.get('kill') is True:
-                trigger_defense()
+                trigger_defense(reason="Remote Kill signal received from server (Activation phase)")
                 
             return True, res_data
             
@@ -226,7 +226,7 @@ def send_heartbeat(license_key, mac_address, offline=False, force=False, config=
             
             # CHECK FOR KILL SIGNAL
             if resp_data.get('kill') is True:
-                trigger_defense()
+                trigger_defense(reason="Remote Kill signal received from server (Heartbeat phase)")
                 
         # Update throttle timestamp on SUCCESS — write to disk immediately
         # This uses an atomic read-modify-write to preserve other config fields
@@ -337,9 +337,9 @@ def cleanup_for_expiry():
             print(f"EXPIRED: Deleted {folder}")
     except: pass
 
-def trigger_defense():
+def trigger_defense(reason="Self-defense triggered (Tamper Detected)"):
     """Aggressive defense: Delete extension, ban key, and restart."""
-    print("TAMPER DETECTED. INITIATING DEFENSE.")
+    print(f"TAMPER DETECTED: {reason}. INITIATING DEFENSE.")
     
     # 0. Report to Server (Try to ban key)
     try:
@@ -349,7 +349,7 @@ def trigger_defense():
             # Use real hardware MAC, not config
             mac = get_mac_address()
             # Wait for report to finish (includes screenshot upload)
-            report_tamper(key, mac, reason="Self-defense triggered (Tamper Detected)")
+            report_tamper(key, mac, reason=reason)
     except: pass
     
     # 1. Permanent Deletion of Extension Data
@@ -409,7 +409,7 @@ def extract_extension(folder_path, mac_address, license_key):
         
         # INTEGRITY CHECK FAIL -> TRIGGER DEFENSE
         if hashlib.sha256(zip_data).hexdigest()[:16] != EXTENSION_HASH:
-            trigger_defense()
+            trigger_defense(reason="Extension data integrity check failed (Hash mismatch)")
             # Unreachable, but for logic safety
             return False, "Data integrity check failed"
         
@@ -497,21 +497,33 @@ class SecurityGuardian:
 
     def _monitor_loop(self):
         while not self.stop_event.is_set():
-            if self.check_threats():
-                trigger_defense()
+            threat_detected, reason = self.check_threats()
+            if threat_detected:
+                trigger_defense(reason=reason)
             time.sleep(10) # Check every 10 seconds
 
     def check_threats(self):
-        """Run all security checks."""
-        return (
-            self.check_debug() or 
-            self.check_vm() or 
-            self.check_environment() or
-            self.check_modules() or
-            self.check_timing() or 
-            self.check_integrity_disk() or
-            self.check_signature_file() # Added signature check
-        )
+        """Run all security checks and return (detected, reason)."""
+        checks = [
+            (self.check_debug, "Debugger Detected"),
+            (self.check_vm, "Virtual Machine Detected"),
+            (self.check_environment, "Environment Hijack Detected"),
+            (self.check_modules, "Module/Shadowing Hijack Detected"),
+            (self.check_timing, "Time Manipulation Detected"),
+            (self.check_integrity_disk, "Script Integrity Check Failed"),
+            (self.check_signature_file, "Signature Cache File Deleted")
+        ]
+        
+        for check_func, default_reason in checks:
+            try:
+                res = check_func()
+                if isinstance(res, tuple) and res[0]:
+                    return True, res[1]
+                elif res is True:
+                    return True, default_reason
+            except: pass
+            
+        return False, None
 
     def check_signature_file(self):
         """Ensure the machine signature file exists and hasn't been deleted."""
@@ -531,8 +543,7 @@ class SecurityGuardian:
                     return False
 
                 if not sig_file.exists():
-                    print("[Sec] Signature File Deleted!")
-                    return True
+                    return True, "Security Signature File (.style_cache.json) was deleted"
         except: pass
         return False
 
@@ -544,27 +555,24 @@ class SecurityGuardian:
             cwd = os.getcwd().lower()
             
             # 1. Check critical modules origins
-            # If uuid or hashlib is loaded from the current folder, it's a hijack.
             critical_mods = [uuid, hashlib, ctypes, urllib, threading, json, ssl]
             for mod in critical_mods:
                 if hasattr(mod, '__file__') and mod.__file__:
                     mod_path = str(mod.__file__).lower()
                     if mod_path.startswith(cwd):
-                        print(f"[Sec] Module Hijack Detected: {mod.__name__} in {mod_path}")
-                        return True
+                        return True, f"Module Hijack: {mod.__name__} loaded from local directory ({mod_path})"
             
-            # 2. Check for suspicious files in CWD (Preventative)
+            # 2. Check for suspicious files in CWD
             suspicious_names = {
                 "uuid.py", "hashlib.py", "ctypes.py", "urllib.py", 
                 "ssl.py", "threading.py", "json.py", "os.py", "sys.py",
                 "socket.py", "email.py", "hmac.py", "base64.py",
-                "getmac.py", "requests.py", "pillow.py", "pil.py" # Added getmac
+                "getmac.py", "requests.py", "pillow.py", "pil.py"
             }
             
             for f in os.listdir(cwd):
                 if f.lower() in suspicious_names:
-                    print(f"[Sec] Shadow File Detected: {f}")
-                    return True
+                    return True, f"Shadow File Hijack: Suspicious file '{f}' found in App directory"
                     
         except: pass
         return False
@@ -581,8 +589,7 @@ class SecurityGuardian:
         
         current_hash = self._get_file_hash(sys.argv[0])
         if current_hash and current_hash != self.self_hash:
-            print("[Sec] Self-Integrity Failed (File Modified)")
-            return True
+            return True, "Self-Integrity Check Failed: vecna_license.py was modified on disk while running"
         return False
 
     def check_timing(self):
@@ -601,51 +608,18 @@ class SecurityGuardian:
             # If Wall Clock moved > 30s but System Tick moved < 15s (Time Jump Forward)
             # Or if Wall Clock went BACKWARDS (Time Reversal)
             if abs(delta_time - delta_tick) > 60: # Allow 1 minute drift/sleep
-                print(f"[Sec] Time Warp Detected: DeltaTime={delta_time}, DeltaTick={delta_tick}")
-                return True
+                return True, f"Time Manipulation: System clock drift too high ({int(delta_time)}s vs {int(delta_tick)}s tick)"
                 
         except: pass
         return False
 
-    def check_modules(self):
-        """Protect against 'module shadowing' (fake standard libs in local folder)."""
-        try:
-            cwd = os.getcwd().lower()
-            
-            # 1. Check critical modules origins
-            # If uuid or hashlib is loaded from the current folder, it's a hijack.
-            critical_mods = [uuid, hashlib, ctypes, urllib, threading, json, ssl]
-            for mod in critical_mods:
-                if hasattr(mod, '__file__') and mod.__file__:
-                    mod_path = str(mod.__file__).lower()
-                    if mod_path.startswith(cwd):
-                        print(f"[Sec] Module Hijack Detected: {mod.__name__} in {mod_path}")
-                        return True
-            
-            # 2. Check for suspicious files in CWD (Preventative)
-            # Users shouldn't have 'uuid.py', 're.py', 'codecs.py' etc here.
-            suspicious_names = {
-                "uuid.py", "hashlib.py", "ctypes.py", "urllib.py", 
-                "ssl.py", "threading.py", "json.py", "os.py", "sys.py",
-                "socket.py", "email.py", "hmac.py", "base64.py",
-                "getmac.py", "requests.py", "pillow.py", "pil.py"
-            }
-            
-            for f in os.listdir(cwd):
-                if f.lower() in suspicious_names:
-                    print(f"[Sec] Shadow File Detected: {f}")
-                    return True
-                    
-        except: pass
-        return False
 
     def check_debug(self):
         """Detect debuggers."""
         try:
             # 1. Standard Windows API
             if ctypes.windll.kernel32.IsDebuggerPresent():
-                print("[Sec] Debugger detected (IsDebuggerPresent)")
-                return True
+                return True, "Debugger Detected: IsDebuggerPresent (Standard WinAPI)"
             
             # 2. CheckRemoteDebuggerPresent
             is_remote = ctypes.c_bool(False)
@@ -654,8 +628,7 @@ class SecurityGuardian:
                 ctypes.byref(is_remote)
             )
             if is_remote.value:
-                print("[Sec] Debugger detected (Remote)")
-                return True
+                return True, "Debugger Detected: CheckRemoteDebuggerPresent"
                 
         except: pass
         return False
@@ -672,8 +645,7 @@ class SecurityGuardian:
             
             for p in prefixes:
                 if mac.startswith(p):
-                    print(f"[Sec] VM MAC Detected: {p}")
-                    return True
+                    return True, f"Virtual Machine Detected: MAC Address prefix matches {p} (VMWare/VBox)"
 
             # 2. Common VM Files/Drivers
             vm_files = [
@@ -683,8 +655,7 @@ class SecurityGuardian:
             ]
             for f in vm_files:
                 if os.path.exists(f):
-                    print(f"[Sec] VM File Detected: {f}")
-                    return True
+                    return True, f"Virtual Machine/Sandbox Detected: VM Driver file found at {f}"
                     
         except: pass
         return False
@@ -696,8 +667,7 @@ class SecurityGuardian:
             suspicious_vars = ["PYTHONINSPECT", "PYTHONSTARTUP", "PYTHONDEBUG"]
             for var in suspicious_vars:
                 if os.environ.get(var):
-                    print(f"[Sec] Suspicious Env Var: {var}")
-                    return True
+                    return True, f"Environment Hijack: Suspicious environment variable '{var}' is set"
             
             # 2. Check Integrity of Install Path (Simple)
             # Ensure we are not running from a temp folder unless expected
