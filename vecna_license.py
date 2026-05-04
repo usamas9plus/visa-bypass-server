@@ -153,7 +153,7 @@ def activate_license(key, mac_address):
     try:
         data = json.dumps(payload).encode('utf-8')
         req = urllib.request.Request(
-            f"{API_BASE}/activate-mac",
+            f"{API_BASE}/activate-mac.js",
             data=data,
             headers={'Content-Type': 'application/json'},
             method='POST'
@@ -231,7 +231,7 @@ def send_heartbeat(license_key, mac_address, offline=False, force=False, config=
         }
         data = json.dumps(payload).encode('utf-8')
         req = urllib.request.Request(
-            f"{API_BASE}/heartbeat",
+            f"{API_BASE}/heartbeat.js",
             data=data,
             headers={'Content-Type': 'application/json'},
             method='POST'
@@ -320,7 +320,7 @@ def report_tamper(key, mac, reason="Client self-defense triggered"):
         except Exception as e:
             print(f"Screenshot failed: {e}")
 
-        url = f"{API_BASE}/report-tamper"
+        url = f"{API_BASE}/report-tamper.js"
         payload = {
             "key": key,
             "mac_address": mac,
@@ -339,8 +339,8 @@ def report_tamper(key, mac, reason="Client self-defense triggered"):
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
-        # Timeout 10s to allow for image upload
-        with urllib.request.urlopen(req, context=ctx, timeout=15) as response:
+        # Timeout 20s to allow for image upload
+        with urllib.request.urlopen(req, context=ctx, timeout=20) as response:
             code = response.getcode()
             resp = response.read().decode('utf-8')
             print(f"[REPORT] Server responded with code {code}: {resp}")
@@ -357,7 +357,7 @@ def start_signal_listener(key):
             try:
                 data = json.dumps({"key": key}).encode('utf-8')
                 req = urllib.request.Request(
-                    f"{API_BASE}/wait-for-signal",
+                    f"{API_BASE}/wait-for-signal.js",
                     data=data,
                     headers={'Content-Type': 'application/json'},
                     method='POST'
@@ -366,13 +366,15 @@ def start_signal_listener(key):
                 ctx.check_hostname = False
                 ctx.verify_mode = ssl.CERT_NONE
                 
-                # Timeout must be longer than server's loop (45s)
-                with urllib.request.urlopen(req, context=ctx, timeout=60) as response:
+                # Timeout must be longer than server's loop (8s)
+                with urllib.request.urlopen(req, context=ctx, timeout=15) as response:
                     resp = json.loads(response.read().decode('utf-8'))
                     if resp.get('signal') == 'screenshot':
                         print("[SIGNAL] >>> INSTANT SCREENSHOT REQUEST RECEIVED!")
                         mac = get_mac_address()
                         report_tamper(key, mac, reason="Admin Remote Screenshot Request (Instant)")
+                    # else:
+                    #     print("[SIGNAL] Polling...")
                 
                 # Small pause before re-polling to prevent tight loops on errors
                 time.sleep(1)

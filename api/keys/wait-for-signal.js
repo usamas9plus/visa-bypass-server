@@ -14,12 +14,12 @@ module.exports = async function handler(req, res) {
         const { key } = req.body;
         if (!key) return res.status(400).json({ error: 'Missing key' });
 
-        console.log(`[SIGNAL WAIT] Client started waiting for signal: ${key}`);
+        console.log(`[SIGNAL WAIT] Client connection: ${key}`);
 
-        // Long Polling Loop: Check Redis every 2 seconds for up to 45 seconds
-        // This gives near-instant response with minimal server load
+        // Long Polling Loop: Check Redis every 1.5 seconds for up to 8 seconds
+        // (Vercel Hobby timeout is 10s)
         const startTime = Date.now();
-        const timeout = 45000; // 45 seconds
+        const timeout = 8000; 
 
         while (Date.now() - startTime < timeout) {
             const signal = await redis.hget(`key:${key}`, 'requestScreenshot');
