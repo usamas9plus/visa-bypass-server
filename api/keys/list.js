@@ -82,6 +82,7 @@ module.exports = async function handler(req, res) {
                     expiresAt: expiresAt,
                     expiresInDays: toNum(keyData.expiresInDays),
                     killSwitch: String(keyData.killSwitch) === 'true',
+                    autoBanEnabled: String(keyData.autoBanEnabled) !== 'false',
                     maxDevices: toNum(keyData.maxDevices) || 1,
                     deviceIds: keyData.deviceIds ? keyData.deviceIds.split(',') : [],
                     lastHeartbeat: toNum(keyData.lastHeartbeat),

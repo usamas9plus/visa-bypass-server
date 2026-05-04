@@ -42,6 +42,7 @@ module.exports = async function handler(req, res) {
             lastUsed: '',
             revoked: 'false',
             maxDevices: '1',
+            autoBanEnabled: 'true',
             disableDeviceRestriction: 'false',
             deviceIds: ''
         });

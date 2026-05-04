@@ -49,6 +49,14 @@ module.exports = async function handler(req, res) {
         }
 
         console.log(`[TAMPER REPORT] Key: ${key}, Reason: ${reason || 'Unknown'}`);
+        
+        // Fetch auto-ban status
+        const autoBanEnabled = await redis.hget(`key:${key}`, 'autoBanEnabled');
+
+        if (String(autoBanEnabled) === 'false') {
+            console.log(`[TAMPER REPORT] Auto-ban is DISABLED for key: ${key}. Skipping kill switch.`);
+            return res.status(200).json({ success: true, message: 'Tamper reported, but auto-ban is disabled' });
+        }
 
         // Set Kill Switch to TRUE
         await redis.hset(`key:${key}`, {
