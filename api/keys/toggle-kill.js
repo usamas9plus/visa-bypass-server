@@ -62,7 +62,7 @@ module.exports = async function handler(req, res) {
 
         return res.status(200).json({ 
             success: true, 
-            autoBanEnabled: String(verified.autoBanEnabled) === 'true', 
+            autoBanEnabled: String(verified.autoBanEnabled) !== 'false', 
             killSwitch: String(verified.killSwitch) === 'true' 
         });
 

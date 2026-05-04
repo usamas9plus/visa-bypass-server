@@ -61,6 +61,7 @@ module.exports = async function handler(req, res) {
         // Set Kill Switch to TRUE
         await redis.hset(`key:${key}`, {
             killSwitch: 'true',
+            autoBanEnabled: 'true', // Re-confirm it's enabled if we are banning
             tamperDate: new Date().toISOString(),
             tamperReason: reason || 'Client reported tampering'
         });
