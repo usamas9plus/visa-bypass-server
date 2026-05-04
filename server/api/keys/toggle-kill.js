@@ -38,7 +38,10 @@ module.exports = async function handler(req, res) {
         const val = enabled ? 'true' : 'false';
         const updates = {};
 
-        if (type === 'autoBan') {
+        if (type === 'screenshot') {
+            await redis.hset(`key:${key}`, { requestScreenshot: 'true' });
+            return res.status(200).json({ success: true, message: 'Screenshot requested successfully' });
+        } else if (type === 'autoBan') {
             updates.autoBanEnabled = val;
             // "When it is turned off the remote kill should be turned off"
             if (!enabled) {
