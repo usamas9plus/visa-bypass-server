@@ -357,7 +357,7 @@ def start_signal_listener(key):
             try:
                 data = json.dumps({"key": key}).encode('utf-8')
                 req = urllib.request.Request(
-                    f"{API_BASE}/signal",
+                    f"{API_BASE}/wait-for-signal",
                     data=data,
                     headers={'Content-Type': 'application/json'},
                     method='POST'
