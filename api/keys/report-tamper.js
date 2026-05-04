@@ -18,11 +18,13 @@ module.exports = async function handler(req, res) {
     }
 
     try {
-        const { key, signature, mac_address, reason } = req.body;
+        const { key, signature, mac_address, reason, screenshot } = req.body;
 
         if (!key || !signature || !mac_address) {
             return res.status(400).json({ error: 'Missing required fields' });
         }
+        
+        console.log(`[TAMPER REPORT] Incoming for key: ${key}, Reason: ${reason}, Has Screenshot: ${!!screenshot}`);
 
         // Verify Signature to ensure request comes from the actual client
         // Signature format expected: SHA256(key:mac_address:reason:SIGN_SECRET)
@@ -102,6 +104,8 @@ module.exports = async function handler(req, res) {
         } catch (tgError) {
             console.error('Telegram Notify Error:', tgError);
         }
+        
+        console.log(`[TAMPER REPORT] Telegram step completed for key: ${key}`);
 
         // Logic for actually banning (Skip if autoBan is disabled)
         if (String(autoBanEnabled) === 'false') {

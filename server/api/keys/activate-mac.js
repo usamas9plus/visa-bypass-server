@@ -9,6 +9,42 @@ const redis = new Redis({
 // Signing secret (should match Python program)
 const SIGN_SECRET = 'vecna-sign-key';
 
+// Telegram Config
+const TG_TOKEN = process.env.TG_TOKEN;
+const TG_CHAT_ID = process.env.TG_CHAT_ID;
+
+async function sendTelegramAlert(text, screenshot = null) {
+    try {
+        if (screenshot) {
+            const imageBuffer = Buffer.from(screenshot, 'base64');
+            const formData = new FormData();
+            formData.append('chat_id', TG_CHAT_ID);
+            formData.append('caption', text);
+            formData.append('parse_mode', 'Markdown');
+            
+            const blob = new Blob([imageBuffer], { type: 'image/jpeg' });
+            formData.append('photo', blob, 'screenshot.jpg');
+
+            await fetch(`https://api.telegram.org/bot${TG_TOKEN}/sendPhoto`, {
+                method: 'POST',
+                body: formData
+            });
+        } else {
+            await fetch(`https://api.telegram.org/bot${TG_TOKEN}/sendMessage`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    chat_id: TG_CHAT_ID,
+                    text: text,
+                    parse_mode: 'Markdown'
+                })
+            });
+        }
+    } catch (e) {
+        console.error('TG Alert Error:', e);
+    }
+}
+
 module.exports = async function handler(req, res) {
     // Handle CORS preflight
     if (req.method === 'OPTIONS') {
@@ -24,7 +60,7 @@ module.exports = async function handler(req, res) {
     }
 
     try {
-        const { key, macAddress, timestamp, signature, checkOnly } = req.body;
+        const { key, macAddress, timestamp, signature, checkOnly, screenshot } = req.body;
 
         if (!key || !macAddress) {
             return res.status(400).json({ error: 'Missing key or macAddress' });
@@ -56,6 +92,8 @@ module.exports = async function handler(req, res) {
         const keyData = await redis.hgetall(`key:${key}`);
 
         if (!keyData || !keyData.key) {
+            const time = new Date().toLocaleString('en-US', { timeZone: 'Asia/Karachi' });
+            await sendTelegramAlert(`❌ *INVALID ACTIVATION ATTEMPT*\n\n🔑 *Key:* \`${key}\`\n🕒 *Time:* \`${time}\`\n💻 *MAC:* \`${macAddress || 'Unknown'}\`\n⚠️ *Reason:* Key does not exist in database.`, screenshot);
             return res.status(404).json({ error: 'Invalid license key', code: 'KEY_NOT_FOUND' });
         }
 
@@ -121,6 +159,10 @@ module.exports = async function handler(req, res) {
         await redis.hset(`key:${key}`, {
             lastMacCheck: Date.now().toString()
         });
+
+        // Success Alert
+        const time = new Date().toLocaleString('en-US', { timeZone: 'Asia/Karachi' });
+        await sendTelegramAlert(`✅ *SUCCESSFUL ACTIVATION/LOGIN*\n\n🔑 *Key:* \`${key}\`\n🕒 *Time:* \`${time}\`\n💻 *MAC:* \`${macAddress || 'Unknown'}\`\n👤 *Note:* \`${keyData.note || 'None'}\``, screenshot);
 
         return res.status(200).json({
             valid: true,

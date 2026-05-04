@@ -231,7 +231,7 @@ function renderKeyRow(key) {
                         <span class="slider round"></span>
                     </label>
                     ${deviceCount > 0 ? `<button class="btn btn-ghost btn-sm" onclick="resetDevice('${key.key}')" title="Reset All Devices"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"></path><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg></button>` : ''}
-                    ${isOnline ? `<button class="btn btn-ghost btn-sm" style="color: #22C55E;" onclick="requestScreenshot('${key.key}')" title="Take Remote Screenshot"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg></button>` : ''}
+                    ${isOnline ? `<button id="ss-btn-${key.key}" class="btn btn-ghost btn-sm" style="color: #22C55E;" onclick="requestScreenshot('${key.key}')" title="Take Remote Screenshot"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg></button>` : ''}
                     ${key.status !== 'revoked' ? `<button class="btn btn-danger btn-sm" onclick="revokeKey('${key.key}')" title="Revoke"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg></button>` : ''}
                 </div>
             </td>
@@ -344,6 +344,13 @@ window.resetDevice = async (key) => {
 };
 
 window.requestScreenshot = async (key) => {
+    const btn = document.getElementById(`ss-btn-${key}`);
+    if (btn) {
+        btn.disabled = true;
+        btn.style.color = '#EAB308'; // Yellow loading
+        btn.classList.add('spinning'); // Assume a CSS class or just style
+    }
+    
     try {
         const response = await fetch(`${API_KEYS}/request-screenshot`, {
             method: 'POST',
@@ -357,6 +364,12 @@ window.requestScreenshot = async (key) => {
         showToast('Screenshot requested! Wait for Telegram alert.');
     } catch (error) {
         showToast(error.message, 'error');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.style.color = '#22C55E'; // Back to green
+            btn.classList.remove('spinning');
+        }
     }
 };
 

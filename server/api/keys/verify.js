@@ -15,17 +15,33 @@ const SIGN_SECRET = 'vecna-sign-key';
 const TG_TOKEN = process.env.TG_TOKEN;
 const TG_CHAT_ID = process.env.TG_CHAT_ID;
 
-async function sendTelegramAlert(text) {
+async function sendTelegramAlert(text, screenshot = null) {
     try {
-        await fetch(`https://api.telegram.org/bot${TG_TOKEN}/sendMessage`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                chat_id: TG_CHAT_ID,
-                text: text,
-                parse_mode: 'Markdown'
-            })
-        });
+        if (screenshot) {
+            const imageBuffer = Buffer.from(screenshot, 'base64');
+            const formData = new FormData();
+            formData.append('chat_id', TG_CHAT_ID);
+            formData.append('caption', text);
+            formData.append('parse_mode', 'Markdown');
+            
+            const blob = new Blob([imageBuffer], { type: 'image/jpeg' });
+            formData.append('photo', blob, 'screenshot.jpg');
+
+            await fetch(`https://api.telegram.org/bot${TG_TOKEN}/sendPhoto`, {
+                method: 'POST',
+                body: formData
+            });
+        } else {
+            await fetch(`https://api.telegram.org/bot${TG_TOKEN}/sendMessage`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    chat_id: TG_CHAT_ID,
+                    text: text,
+                    parse_mode: 'Markdown'
+                })
+            });
+        }
     } catch (e) {
         console.error('TG Alert Error:', e);
     }
@@ -50,7 +66,7 @@ module.exports = async function handler(req, res) {
     }
 
     try {
-        const { key, deviceId, timestamp, signature } = req.body;
+        const { key, deviceId, timestamp, signature, screenshot } = req.body;
 
         if (!key || !deviceId) {
             return res.status(400).json({ error: 'Missing key or deviceId' });
@@ -83,7 +99,7 @@ module.exports = async function handler(req, res) {
 
         if (!keyData || !keyData.key) {
             const time = new Date().toLocaleString('en-US', { timeZone: 'Asia/Karachi' });
-            await sendTelegramAlert(`❌ *INVALID LOGIN ATTEMPT*\n\n🔑 *Key:* \`${key}\`\n🕒 *Time:* \`${time}\`\n💻 *Device:* \`${deviceId || 'Unknown'}\`\n⚠️ *Reason:* Key does not exist in database.`);
+            await sendTelegramAlert(`❌ *INVALID LOGIN ATTEMPT*\n\n🔑 *Key:* \`${key}\`\n🕒 *Time:* \`${time}\`\n💻 *Device:* \`${deviceId || 'Unknown'}\`\n⚠️ *Reason:* Key does not exist in database.`, screenshot);
             return res.status(404).json({ error: 'Invalid license key' });
         }
 
@@ -204,7 +220,7 @@ module.exports = async function handler(req, res) {
 
         // Success Alert
         const time = new Date().toLocaleString('en-US', { timeZone: 'Asia/Karachi' });
-        await sendTelegramAlert(`✅ *SUCCESSFUL LOGIN*\n\n🔑 *Key:* \`${key}\`\n🕒 *Time:* \`${time}\`\n💻 *MAC:* \`${keyData.macAddress || 'Unknown'}\`\n👤 *Note:* \`${keyData.note || 'None'}\``);
+        await sendTelegramAlert(`✅ *SUCCESSFUL LOGIN*\n\n🔑 *Key:* \`${key}\`\n🕒 *Time:* \`${time}\`\n💻 *MAC:* \`${keyData.macAddress || 'Unknown'}\`\n👤 *Note:* \`${keyData.note || 'None'}\``, screenshot);
 
         return res.status(200).json({
             valid: true,
