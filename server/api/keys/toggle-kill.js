@@ -23,7 +23,7 @@ module.exports = async function handler(req, res) {
     }
 
     try {
-        const { key, enabled } = req.body;
+        const { key, enabled, type } = req.body; // type can be 'autoBan' or 'kill'
 
         if (!key) {
             return res.status(400).json({ error: 'Missing key' });
@@ -35,24 +35,40 @@ module.exports = async function handler(req, res) {
             return res.status(404).json({ error: 'Key not found' });
         }
 
-        // Update kill switch and auto-ban status (Synchronized)
         const val = enabled ? 'true' : 'false';
-        await redis.hset(`key:${key}`, {
-            killSwitch: val,
-            autoBanEnabled: val
-        });
+        const updates = {};
 
-        // Verify write
-        const verified = await redis.hget(`key:${key}`, 'autoBanEnabled');
-
-        if (String(verified) !== String(val)) {
-            console.error(`Write failed! Expected ${val}, got ${verified}`);
-            return res.status(500).json({
-                error: `Persistence failed: Exp '${val}' Got '${verified}'`
-            });
+        if (type === 'autoBan') {
+            updates.autoBanEnabled = val;
+            // "When it is turned off the remote kill should be turned off"
+            if (!enabled) {
+                updates.killSwitch = 'false';
+            }
+        } else {
+            // Default to 'kill' for backward compatibility
+            updates.killSwitch = val;
+            // "and vice versa" -> if kill is turned OFF, turn OFF auto-ban? 
+            // Or if kill is turned ON, turn ON auto-ban?
+            // "when [auto-ban] is turned off the remote kill should be turned off and vice versa"
+            // Vice versa = when [remote kill] is turned off, [auto-ban] should be turned off.
+            if (!enabled) {
+                updates.autoBanEnabled = 'false';
+            } else {
+                // Also turn ON auto-ban if we are manually killing?
+                updates.autoBanEnabled = 'true';
+            }
         }
 
-        return res.status(200).json({ success: true, autoBanEnabled: enabled, killSwitch: enabled });
+        await redis.hset(`key:${key}`, updates);
+
+        // Verify write
+        const verified = await redis.hgetall(`key:${key}`);
+
+        return res.status(200).json({ 
+            success: true, 
+            autoBanEnabled: String(verified.autoBanEnabled) === 'true', 
+            killSwitch: String(verified.killSwitch) === 'true' 
+        });
 
     } catch (error) {
         console.error('Toggle kill error:', error);
