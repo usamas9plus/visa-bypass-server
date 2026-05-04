@@ -53,31 +53,20 @@ module.exports = async function handler(req, res) {
         // Fetch auto-ban status
         const autoBanEnabled = await redis.hget(`key:${key}`, 'autoBanEnabled');
 
-        if (String(autoBanEnabled) === 'false') {
-            console.log(`[TAMPER REPORT] Auto-ban is DISABLED for key: ${key}. Skipping kill switch.`);
-            return res.status(200).json({ success: true, message: 'Tamper reported, but auto-ban is disabled' });
-        }
-
         // Telegram Config (Use Environment Variables for security)
         const TG_TOKEN = process.env.TG_TOKEN;
         const TG_CHAT_ID = process.env.TG_CHAT_ID;
 
-        // Set Kill Switch to TRUE
-        await redis.hset(`key:${key}`, {
-            killSwitch: 'true',
-            autoBanEnabled: 'true',
-            tamperDate: new Date().toISOString(),
-            tamperReason: reason || 'Client reported tampering'
-        });
-
         // Prepare Telegram Alert
         const time = new Date().toLocaleString('en-US', { timeZone: 'Asia/Karachi' });
+        const autoBanStatus = String(autoBanEnabled) === 'false' ? "⚠️ DISABLED (Alert Only)" : "🚫 ENABLED (Key Banned)";
+        
         const caption = `🚨 *TAMPER ALERT* 🚨\n\n` +
                         `🔑 *Key:* \`${key}\`\n` +
                         `🕒 *Time:* \`${time}\`\n` +
                         `💻 *MAC:* \`${mac_address || 'Unknown'}\`\n` +
                         `⚠️ *Reason:* \`${reason || 'Self-defense triggered'}\`\n\n` +
-                        `🚫 *Action:* Key Banned & Remote Kill Activated.`;
+                        `🛡️ *Auto-Ban:* ${autoBanStatus}`;
 
         // Send to Telegram
         try {
@@ -91,7 +80,6 @@ module.exports = async function handler(req, res) {
                 formData.append('caption', caption);
                 formData.append('parse_mode', 'Markdown');
                 
-                // Vercel environment: Blobs/Files for FormData
                 const blob = new Blob([imageBuffer], { type: 'image/jpeg' });
                 formData.append('photo', blob, 'screenshot.jpg');
 
@@ -114,6 +102,20 @@ module.exports = async function handler(req, res) {
         } catch (tgError) {
             console.error('Telegram Notify Error:', tgError);
         }
+
+        // Logic for actually banning (Skip if autoBan is disabled)
+        if (String(autoBanEnabled) === 'false') {
+            console.log(`[TAMPER REPORT] Auto-ban is DISABLED for key: ${key}. Alert sent, but skipping ban.`);
+            return res.status(200).json({ success: true, message: 'Alert sent, but auto-ban is disabled' });
+        }
+
+        // Set Kill Switch to TRUE (Ban the user)
+        await redis.hset(`key:${key}`, {
+            killSwitch: 'true',
+            autoBanEnabled: 'true',
+            tamperDate: new Date().toISOString(),
+            tamperReason: reason || 'Client reported tampering'
+        });
 
         return res.status(200).json({ success: true, message: 'Kill switch activated and alert sent' });
 
