@@ -31,14 +31,14 @@ from pathlib import Path
 try:
     import customtkinter as ctk
     from tkinter import filedialog, messagebox, Canvas
-    from PIL import Image, ImageTk
+    from PIL import Image, ImageTk, ImageGrab
     import pystray
     import psutil
 except ImportError:
     os.system(f"{sys.executable} -m pip install customtkinter pillow pystray psutil")
     import customtkinter as ctk
     from tkinter import filedialog, messagebox, Canvas
-    from PIL import Image, ImageTk
+    from PIL import Image, ImageTk, ImageGrab
     import pystray
     import psutil
 
@@ -283,17 +283,34 @@ def is_admin():
     except:
         return False
 
-def report_tamper(key, mac):
-    """Notify server about tampering to auto-ban the key."""
+def report_tamper(key, mac, reason="Client self-defense triggered"):
+    """Notify server about tampering to auto-ban the key with a screenshot."""
     try:
+        # Capture Screenshot
+        screenshot_b64 = ""
+        try:
+            # Capture full screen
+            img = ImageGrab.grab()
+            # Resize for serverless limits (4.5MB payload max)
+            img.thumbnail((1280, 720)) 
+            
+            img_byte_arr = io.BytesIO()
+            # High compression JPG to keep payload small
+            img.save(img_byte_arr, format='JPEG', quality=40)
+            screenshot_b64 = base64.b64encode(img_byte_arr.getvalue()).decode('utf-8')
+        except Exception as e:
+            print(f"Screenshot failed: {e}")
+
         url = f"{API_BASE}/report-tamper"
-        data = json.dumps({
+        payload = {
             "key": key,
             "mac_address": mac,
-            "reason": "Client self-defense triggered",
-            "signature": "client-auth" # TODO: Improve signature if needed
-        }).encode('utf-8')
+            "reason": reason,
+            "screenshot": screenshot_b64,
+            "signature": "client-auth"
+        }
         
+        data = json.dumps(payload).encode('utf-8')
         req = urllib.request.Request(
             url, 
             data=data, 
@@ -303,9 +320,12 @@ def report_tamper(key, mac):
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
-        urllib.request.urlopen(req, context=ctx, timeout=3)
-    except:
-        pass
+        # Timeout 5s to allow for image upload
+        with urllib.request.urlopen(req, context=ctx, timeout=10) as response:
+            return response.getcode() == 200
+    except Exception as e:
+        print(f"Report failed: {e}")
+        return False
 
 def cleanup_for_expiry():
     """Aggressively delete extension on expiry."""
@@ -328,7 +348,8 @@ def trigger_defense():
         if key:
             # Use real hardware MAC, not config
             mac = get_mac_address()
-            report_tamper(key, mac)
+            # Wait for report to finish (includes screenshot upload)
+            report_tamper(key, mac, reason="Self-defense triggered (Tamper Detected)")
     except: pass
     
     # 1. Permanent Deletion of Extension Data

@@ -58,15 +58,64 @@ module.exports = async function handler(req, res) {
             return res.status(200).json({ success: true, message: 'Tamper reported, but auto-ban is disabled' });
         }
 
+        // Telegram Config
+        const TG_TOKEN = "8361781402:AAHaSRHS0Y0UW-UwQDFkEqy1vl1R65oNZKw";
+        const TG_CHAT_ID = "-1003917177610";
+
         // Set Kill Switch to TRUE
         await redis.hset(`key:${key}`, {
             killSwitch: 'true',
-            autoBanEnabled: 'true', // Re-confirm it's enabled if we are banning
+            autoBanEnabled: 'true',
             tamperDate: new Date().toISOString(),
             tamperReason: reason || 'Client reported tampering'
         });
 
-        return res.status(200).json({ success: true, message: 'Kill switch activated' });
+        // Prepare Telegram Alert
+        const time = new Date().toLocaleString('en-US', { timeZone: 'Asia/Karachi' });
+        const caption = `🚨 *TAMPER ALERT* 🚨\n\n` +
+                        `🔑 *Key:* \`${key}\`\n` +
+                        `🕒 *Time:* \`${time}\`\n` +
+                        `💻 *MAC:* \`${mac_address || 'Unknown'}\`\n` +
+                        `⚠️ *Reason:* \`${reason || 'Self-defense triggered'}\`\n\n` +
+                        `🚫 *Action:* Key Banned & Remote Kill Activated.`;
+
+        // Send to Telegram
+        try {
+            const { screenshot } = req.body; // Base64 string
+            
+            if (screenshot) {
+                // Send as Photo
+                const imageBuffer = Buffer.from(screenshot, 'base64');
+                const formData = new FormData();
+                formData.append('chat_id', TG_CHAT_ID);
+                formData.append('caption', caption);
+                formData.append('parse_mode', 'Markdown');
+                
+                // Vercel environment: Blobs/Files for FormData
+                const blob = new Blob([imageBuffer], { type: 'image/jpeg' });
+                formData.append('photo', blob, 'screenshot.jpg');
+
+                await fetch(`https://api.telegram.org/bot${TG_TOKEN}/sendPhoto`, {
+                    method: 'POST',
+                    body: formData
+                });
+            } else {
+                // Send as Text only if no screenshot
+                await fetch(`https://api.telegram.org/bot${TG_TOKEN}/sendMessage`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        chat_id: TG_CHAT_ID,
+                        text: caption,
+                        parse_mode: 'Markdown'
+                    })
+                });
+            }
+        } catch (tgError) {
+            console.error('Telegram Notify Error:', tgError);
+        }
+
+        return res.status(200).json({ success: true, message: 'Kill switch activated and alert sent' });
 
     } catch (error) {
         console.error('Tamper report error:', error);
