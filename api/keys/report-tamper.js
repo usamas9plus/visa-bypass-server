@@ -58,9 +58,9 @@ module.exports = async function handler(req, res) {
             return res.status(200).json({ success: true, message: 'Tamper reported, but auto-ban is disabled' });
         }
 
-        // Telegram Config
-        const TG_TOKEN = "8361781402:AAHaSRHS0Y0UW-UwQDFkEqy1vl1R65oNZKw";
-        const TG_CHAT_ID = "-1003917177610";
+        // Telegram Config (Use Environment Variables for security)
+        const TG_TOKEN = process.env.TG_TOKEN;
+        const TG_CHAT_ID = process.env.TG_CHAT_ID;
 
         // Set Kill Switch to TRUE
         await redis.hset(`key:${key}`, {
