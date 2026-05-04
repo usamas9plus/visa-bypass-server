@@ -12,6 +12,12 @@ module.exports = async function handler(req, res) {
 
     try {
         const { key } = req.body;
+        const authHeader = req.headers.authorization;
+
+        // Basic password check
+        if (!authHeader || authHeader !== `Bearer ${process.env.ADMIN_PASSWORD}`) {
+            return res.status(401).json({ error: 'Unauthorized' });
+        }
 
         if (!key) {
             return res.status(400).json({ error: 'Missing key' });

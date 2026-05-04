@@ -230,12 +230,26 @@ def send_heartbeat(license_key, mac_address, offline=False, force=False, config=
             
             # CHECK FOR REMOTE SCREENSHOT REQUEST
             if resp_data.get('requestScreenshot') is True:
-                print("[SCREENSHOT] Admin requested remote screenshot...")
-                config = load_config()
-                key = config.get('license_key')
-                if key:
-                    mac = get_mac_address()
-                    report_tamper(key, mac, reason="Admin Remote Screenshot Request")
+                print(f"[SCREENSHOT] >>> Remote Request RECEIVED for key: {load_config().get('license_key')}")
+                
+                def capture_and_send():
+                    try:
+                        print("[SCREENSHOT] Thread started. Capturing...")
+                        config = load_config()
+                        key = config.get('license_key')
+                        if key:
+                            mac = get_mac_address()
+                            print(f"[SCREENSHOT] Sending capture to Telegram for {key}...")
+                            success = report_tamper(key, mac, reason="Admin Remote Screenshot Request")
+                            if success:
+                                print("[SCREENSHOT] ✅ Sent successfully!")
+                            else:
+                                print("[SCREENSHOT] ❌ Failed to send.")
+                    except Exception as e:
+                        print(f"[SCREENSHOT] Error: {e}")
+
+                # Run in background to not block heartbeat thread
+                threading.Thread(target=capture_and_send, daemon=True).start()
                 
         # Update throttle timestamp on SUCCESS — write to disk immediately
         # This uses an atomic read-modify-write to preserve other config fields
