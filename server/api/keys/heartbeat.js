@@ -91,8 +91,9 @@ module.exports = async function handler(req, res) {
                 isOnline: 'true'
             });
 
-            // Check for KILL SWITCH
-            if (String(keyData.killSwitch) === 'true') {
+            // Check for KILL SWITCH (Only if auto-ban enforcement is enabled)
+            const autoBanEnabled = String(keyData.autoBanEnabled) !== 'false';
+            if (autoBanEnabled && String(keyData.killSwitch) === 'true') {
                 return res.status(200).json({
                     success: true,
                     kill: true,

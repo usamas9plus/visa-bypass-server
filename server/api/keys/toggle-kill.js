@@ -35,23 +35,24 @@ module.exports = async function handler(req, res) {
             return res.status(404).json({ error: 'Key not found' });
         }
 
-        // Update kill switch status
+        // Update kill switch and auto-ban status (Synchronized)
         const val = enabled ? 'true' : 'false';
         await redis.hset(`key:${key}`, {
-            killSwitch: val
+            killSwitch: val,
+            autoBanEnabled: val
         });
 
         // Verify write
-        const verified = await redis.hget(`key:${key}`, 'killSwitch');
+        const verified = await redis.hget(`key:${key}`, 'autoBanEnabled');
 
         if (String(verified) !== String(val)) {
             console.error(`Write failed! Expected ${val}, got ${verified}`);
             return res.status(500).json({
-                error: `Persistence failed: Exp '${val}' Got '${verified}' (Type mismatch?)`
+                error: `Persistence failed: Exp '${val}' Got '${verified}'`
             });
         }
 
-        return res.status(200).json({ success: true, killSwitch: enabled, stored: verified });
+        return res.status(200).json({ success: true, autoBanEnabled: enabled, killSwitch: enabled });
 
     } catch (error) {
         console.error('Toggle kill error:', error);

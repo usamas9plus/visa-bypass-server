@@ -138,11 +138,13 @@ function renderKeyRow(key) {
                 </label>
             </td>
             <td>
+                <label class="switch-kill" title="Auto-Ban & Kill Enforcement">
+                    <input type="checkbox" ${key.autoBanEnabled ? 'checked' : ''} onchange="toggleKill('${key.key}', this.checked)">
+                    <span class="slider round"></span>
+                </label>
+            </td>
+            <td>
                 <div class="actions-cell">
-                    <label class="switch-kill" title="Remote Kill">
-                        <input type="checkbox" ${killChecked} onchange="toggleKill('${key.key}', this.checked)">
-                        <span class="slider round"></span>
-                    </label>
                     ${deviceCount > 0 ? `<button class="btn btn-ghost btn-sm" onclick="resetDevice('${key.key}')" title="Reset All Devices"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"></path><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg></button>` : ''}
                     ${key.status !== 'revoked' ? `<button class="btn btn-danger btn-sm" onclick="revokeKey('${key.key}')" title="Revoke"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg></button>` : ''}
                 </div>
@@ -186,12 +188,12 @@ window.toggleKill = async (key, active) => {
         });
         if (!response.ok) throw new Error('Action failed');
         loadKeys();
-        showToast(`Kill switch ${active ? 'ENABLED' : 'DISABLED'}`);
+        showToast(`Auto-Ban & Kill Enforcement ${active ? 'ENABLED' : 'DISABLED'}`);
     } catch (error) {
         showToast(error.message, 'error');
         loadKeys(); // Revert UI
     }
-};
+}
 
 window.revokeKey = async (key) => {
     if (!confirm('Are you sure you want to PERMANENTLY revoke this key?')) return;

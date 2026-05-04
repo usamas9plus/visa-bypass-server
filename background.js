@@ -3,7 +3,7 @@
  * Handles license verification, device locking, and identity reset
  */
 
-const API_BASE = 'https://visa-bypass-server.vercel.app/api/keys';
+const API_BASE = 'https://visa-bypass-server-sigma.vercel.app/api/keys';
 const SIGN_SECRET = 'vecna-sign-key';
 
 let lastVerifyTime = 0; // Emergency throttle v1.1.2
@@ -114,15 +114,19 @@ async function generateDeviceFingerprint() {
     return hashHex.substring(0, 32); // Return first 32 chars
 }
 
-// Helper: Clear session data but preserve the remembered license key
+// Helper: Clear session data but preserve the remembered license key AND throttle data
 async function clearSessionData() {
     try {
-        const { rememberedLicenseKey } = await chrome.storage.local.get(['rememberedLicenseKey']);
+        const preserved = await chrome.storage.local.get(['rememberedLicenseKey', 'lastVerifyAt']);
         await chrome.storage.local.clear();
-        if (rememberedLicenseKey) {
-            await chrome.storage.local.set({ rememberedLicenseKey });
+        // Restore preserved keys
+        const restoreData = {};
+        if (preserved.rememberedLicenseKey) restoreData.rememberedLicenseKey = preserved.rememberedLicenseKey;
+        if (preserved.lastVerifyAt) restoreData.lastVerifyAt = preserved.lastVerifyAt;
+        if (Object.keys(restoreData).length > 0) {
+            await chrome.storage.local.set(restoreData);
         }
-        console.log('[Storage] Session cleared, remembered key preserved');
+        console.log('[Storage] Session cleared, preserved keys restored');
     } catch (e) {
         console.error('[Storage] Failed to clear session safely:', e);
         await chrome.storage.local.clear(); // Fallback
@@ -161,6 +165,12 @@ async function verifyLicense(key = null, isInitial = false, skipLocalCheck = fal
             return { valid: true, cached: true };
         }
 
+        // Even for manual activation, enforce a 10-second minimum gap to prevent rapid clicks
+        if (isInitial && (now - lastVerifyAt) < 10000) {
+            console.warn('[License] Activation throttled (too rapid)');
+            return { valid: false, error: 'Please wait a moment before retrying', cached: true };
+        }
+
         // Long-term cache check
         if (!isInitial && throttleData.token && throttleData.verifiedAt && (now - throttleData.verifiedAt) < thirtyMins) {
             console.log('[License] Background sync skipped, recently verified.');
@@ -184,6 +194,23 @@ async function verifyLicense(key = null, isInitial = false, skipLocalCheck = fal
         });
 
         const data = await response.json();
+        
+        // For INITIAL activation or background syncs, we MUST have the local app running
+        // This prevents logging in to the extension without the protection app.
+        try {
+            const health = await checkLocalHealth(key);
+            if (!health.valid) {
+                console.error('[License] Local health check failed during verification stage');
+                return { 
+                    valid: false, 
+                    error: 'Run Vecna Bypass Web Application First!', 
+                    requiresActivation: true 
+                };
+            }
+        } catch (e) {
+            console.error('[License] Local health check error:', e);
+            return { valid: false, error: 'Local Connection Error' };
+        }
 
         if (response.ok && data.valid) {
             // Store verification data with integrity check
@@ -201,43 +228,10 @@ async function verifyLicense(key = null, isInitial = false, skipLocalCheck = fal
             await chrome.storage.local.set({ rememberedLicenseKey: key });
             await enableProtection();
 
-            console.log('[License] Verified successfully with server.');
+            console.log('[License] Verified successfully with server and local app.');
             return { valid: true, daysRemaining: data.daysRemaining };
         } else {
-            // Simplified error handling - background checks shouldn't do complex retries or local pings here
-            // The local ping is now handled by its own dedicated alarm.
-            if (!isInitial) {
-                 console.warn('[License] Server verification failed in background.');
-                 return { valid: false, error: data.error || 'Server error' };
-            }
-
-            // For INITIAL activation, we still check if the local app is running to provide a better error message
-            // Use the key provided for this activation attempt to sign the local handshake
-            try {
-                const nonce = 'login_' + Date.now();
-                const signData = `${nonce}:vecna-sign-key:${key}`;
-                const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(signData));
-                const sig = Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
-                
-                const localPing = await fetch(`http://127.0.0.1:31337/status?nonce=${nonce}`, {
-                    method: 'GET',
-                    mode: 'cors'
-                });
-                
-                if (localPing.ok) {
-                    const localData = await localPing.json();
-                    if (localData.signature !== sig) {
-                        console.error('[License] Local signature mismatch during activation check');
-                        return { valid: false, error: 'Run Python App First!', requiresActivation: true };
-                    }
-                } else {
-                    return { valid: false, error: 'Run Python App First!', requiresActivation: true };
-                }
-            } catch (e) {
-                console.error('[License] Local ping failed:', e);
-                return { valid: false, error: 'Run Python App First!', requiresActivation: true };
-            }
-
+            console.warn('[License] Server verification failed.');
             await chrome.storage.local.remove(['licenseKey', 'token', 'expiresAt', 'verifiedAt', 'checksum']);
             await disableProtection();
             return {
@@ -467,7 +461,7 @@ async function checkLocalHealth(overrideKey = null) {
         const data = await response.json();
 
         // 3. Verify Signature: HMAC-SHA256(nonce, SIGN_SECRET + license_key)
-        const expectedSigData = `${nonce}:${SIGN_SECRET}:${stored.licenseKey}`;
+        const expectedSigData = `${nonce}:${SIGN_SECRET}:${key}`;
         const encoder = new TextEncoder();
         const hashBuffer = await crypto.subtle.digest('SHA-256', encoder.encode(expectedSigData));
         const expectedSignature = Array.from(new Uint8Array(hashBuffer))

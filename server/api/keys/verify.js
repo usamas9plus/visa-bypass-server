@@ -70,8 +70,9 @@ module.exports = async function handler(req, res) {
             return res.status(403).json({ error: 'License key has been revoked' });
         }
 
-        // Check KILL SWITCH
-        if (String(keyData.killSwitch) === 'true') {
+        // Check KILL SWITCH (Only if auto-ban enforcement is enabled)
+        const autoBanEnabled = String(keyData.autoBanEnabled) !== 'false';
+        if (autoBanEnabled && String(keyData.killSwitch) === 'true') {
             return res.status(200).json({
                 valid: false,
                 blocked: true,
