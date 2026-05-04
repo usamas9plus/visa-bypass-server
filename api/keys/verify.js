@@ -11,6 +11,26 @@ const { createToken } = require('../../lib/crypto');
 // Signing secret (should match extension)
 const SIGN_SECRET = 'vecna-sign-key';
 
+// Telegram Config
+const TG_TOKEN = process.env.TG_TOKEN;
+const TG_CHAT_ID = process.env.TG_CHAT_ID;
+
+async function sendTelegramAlert(text) {
+    try {
+        await fetch(`https://api.telegram.org/bot${TG_TOKEN}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                chat_id: TG_CHAT_ID,
+                text: text,
+                parse_mode: 'Markdown'
+            })
+        });
+    } catch (e) {
+        console.error('TG Alert Error:', e);
+    }
+}
+
 // Heartbeat must be within this many milliseconds to be considered "online"
 // Heartbeat must be within this many milliseconds to be considered "online"
 const HEARTBEAT_TIMEOUT = 300000; // 15 minutes (900 seconds)
@@ -62,6 +82,8 @@ module.exports = async function handler(req, res) {
         const keyData = await redis.hgetall(`key:${key}`);
 
         if (!keyData || !keyData.key) {
+            const time = new Date().toLocaleString('en-US', { timeZone: 'Asia/Karachi' });
+            await sendTelegramAlert(`❌ *INVALID LOGIN ATTEMPT*\n\n🔑 *Key:* \`${key}\`\n🕒 *Time:* \`${time}\`\n💻 *Device:* \`${deviceId || 'Unknown'}\`\n⚠️ *Reason:* Key does not exist in database.`);
             return res.status(404).json({ error: 'Invalid license key' });
         }
 
@@ -179,6 +201,10 @@ module.exports = async function handler(req, res) {
             macAddress: keyData.macAddress,
             expiresAt: expiresAt
         });
+
+        // Success Alert
+        const time = new Date().toLocaleString('en-US', { timeZone: 'Asia/Karachi' });
+        await sendTelegramAlert(`✅ *SUCCESSFUL LOGIN*\n\n🔑 *Key:* \`${key}\`\n🕒 *Time:* \`${time}\`\n💻 *MAC:* \`${keyData.macAddress || 'Unknown'}\`\n👤 *Note:* \`${keyData.note || 'None'}\``);
 
         return res.status(200).json({
             valid: true,

