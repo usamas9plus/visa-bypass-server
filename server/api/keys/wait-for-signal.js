@@ -14,25 +14,22 @@ module.exports = async function handler(req, res) {
         const { key } = req.body;
         if (!key) return res.status(400).json({ error: 'Missing key' });
 
-        console.log(`[SIGNAL WAIT] Client connection: ${key}`);
-
-        // Long Polling Loop: Check Redis every 1.5 seconds for up to 8 seconds
-        // (Vercel Hobby timeout is 10s)
-        const startTime = Date.now();
-        const timeout = 8000; 
-
-        while (Date.now() - startTime < timeout) {
-            const signal = await redis.hget(`key:${key}`, 'requestScreenshot');
-            
-            if (String(signal) === 'true') {
-                await redis.hdel(`key:${key}`, 'requestScreenshot');
-                console.log(`[SIGNAL WAIT] Signal FOUND for key: ${key}. Sending to client.`);
-                return res.status(200).json({ signal: 'screenshot' });
-            }
-
-            await new Promise(resolve => setTimeout(resolve, 2000));
+        // ULTRA-LEAN MODE: Check Redis only ONCE to save usage limits
+        // Since the Python app polls every ~10s, this is the only way to stay in Free Tier
+        const signal = await redis.hget(`key:${key}`, 'requestScreenshot');
+        
+        if (String(signal) === 'true') {
+            await redis.hdel(`key:${key}`, 'requestScreenshot');
+            console.log(`[SIGNAL] Signal found for ${key.substring(0,8)}`);
+            return res.status(200).json({ signal: 'screenshot' });
         }
 
+        // Hold the connection for 9s to prevent the client from immediately re-polling
+        // but WITHOUT doing any more Redis calls.
+        await new Promise(resolve => setTimeout(resolve, 9000));
+
+
+        // Timeout - tell client to try again
         return res.status(200).json({ signal: 'none' });
 
     } catch (error) {
