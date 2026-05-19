@@ -29,6 +29,7 @@ module.exports = async function handler(req, res) {
         await new Promise(resolve => setTimeout(resolve, 9000));
 
 
+        // Timeout - tell client to try again
         return res.status(200).json({ signal: 'none' });
 
     } catch (error) {
