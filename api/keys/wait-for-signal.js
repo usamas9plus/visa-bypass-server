@@ -14,6 +14,8 @@ module.exports = async function handler(req, res) {
         const { key } = req.body;
         if (!key) return res.status(400).json({ error: 'Missing key' });
 
+        console.log(`[SIGNAL WAIT] Client connection: ${key}`);
+
         // ULTRA-LEAN MODE: Check Redis only ONCE to save usage limits
         // Since the Python app polls every ~10s, this is the only way to stay in Free Tier
         const signal = await redis.hget(`key:${key}`, 'requestScreenshot');
